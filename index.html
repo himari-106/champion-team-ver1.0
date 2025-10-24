@@ -30,12 +30,11 @@
 </head>
 <body>
   <div class="container">
-    <h1>チーム自動振り分け</h1>
+    <h1>チーム自動振り分け（ナチュラル暖色）</h1>
     <div class="card">
       <div class="controls">
         <button id="addRowBtn">行を追加</button>
         <button id="autoFillBtn" class="ghost">サンプルで埋める</button>
-        <button id="clearBtn" class="ghost">全クリア</button>
         <button id="runBtn">チーム分け開始</button>
         <button id="downloadBtn" class="ghost">CSVでダウンロード</button>
       </div>
@@ -104,10 +103,24 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // ボタンイベント登録
   document.getElementById('addRowBtn').onclick = () => addRow({name:'',profession:PROFESSIONS[0],powerStr:'',goal:GOALS[0]});
-  document.getElementById('autoFillBtn').onclick = () => alert('サンプル埋める機能をここに追加');
-  document.getElementById('clearBtn').onclick = () => document.getElementById('playersBody').innerHTML = '';
-  document.getElementById('runBtn').onclick = () => alert('チーム分け開始機能をここに追加');
-  document.getElementById('downloadBtn').onclick = () => alert('CSVダウンロード機能をここに追加');
+
+  // サンプルで埋める処理
+  document.getElementById('autoFillBtn').onclick = () => {
+    const tbody = document.getElementById('playersBody');
+    tbody.innerHTML = '';
+    for(let i=0;i<20;i++){
+      addRow({
+        name: `プレイヤー${i+1}`,
+        profession: PROFESSIONS[i % PROFESSIONS.length],
+        powerStr: (Math.random()*20).toFixed(2) + 'M',
+        goal: GOALS[Math.floor(Math.random()*GOALS.length)]
+      });
+    }
+  };
+
+  // チーム分け開始（仮）
+  document.getElementById('runBtn').onclick = () => alert('チーム分け処理をここに追加');
+  document.getElementById('downloadBtn').onclick = () => alert('CSVダウンロード処理をここに追加');
 });
 </script>
 </body>
