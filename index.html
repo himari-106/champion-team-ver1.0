@@ -3,34 +3,28 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>チーム自動振り分け（春カラー）</title>
+<title>チーム自動振り分け</title>
 <style>
-  :root{
-    --bg:#fff7fb;
-    --card:#fff9fb;
-    --accent:#ff9db2; /* 桜っぽいアクセント */
-    --muted:#8b4b62;
-    --btn-text:#fff;
-  }
-  body{font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:var(--bg); margin:0; padding:20px; color:var(--muted)}
-  .container{max-width:1100px;margin:0 auto}
-  h1{margin:0 0 12px}
-  .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(139,75,98,0.08)}
-  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-  button{background:var(--accent);border:none;color:var(--btn-text);padding:8px 12px;border-radius:8px;cursor:pointer}
-  button.ghost{background:transparent;color:var(--muted);border:1px solid rgba(139,75,98,0.12)}
-  .note{font-size:13px;color:var(--muted);margin-bottom:8px}
-  table{width:100%;border-collapse:collapse;margin-top:8px}
-  th,td{padding:8px;border-bottom:1px solid rgba(139,75,98,0.06);text-align:left}
-  input[type=text], select{padding:6px;border-radius:8px;border:1px solid rgba(139,75,98,0.08);width:100%}
-  .team{background:linear-gradient(180deg,#fff,#fff7f9);padding:10px;border-radius:10px;margin-bottom:10px}
-  .result{margin-top:14px}
-  @media(max-width:800px){ .controls{flex-direction:column} table,thead,tbody,th,td,tr{display:block;width:100%} thead tr{display:none} td{border:none;padding-left:40%;position:relative} td:before{position:absolute;left:8px;top:8px;content:attr(data-label);font-weight:bold} }
+:root{--bg:#fff7fb;--card:#fff9fb;--accent:#ff9db2;--muted:#8b4b62;--btn-text:#fff;}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg);margin:0;padding:20px;color:var(--muted)}
+.container{max-width:1100px;margin:0 auto}
+h1{margin:0 0 12px}
+.card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(139,75,98,0.08)}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+button{background:var(--accent);border:none;color:var(--btn-text);padding:8px 12px;border-radius:8px;cursor:pointer}
+button.ghost{background:transparent;color:var(--muted);border:1px solid rgba(139,75,98,0.12)}
+.note{font-size:13px;color:var(--muted);margin-bottom:8px}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{padding:8px;border-bottom:1px solid rgba(139,75,98,0.06);text-align:left}
+input[type=text], select{padding:6px;border-radius:8px;border:1px solid rgba(139,75,98,0.08);width:100%}
+.team{background:linear-gradient(180deg,#fff,#fff7f9);padding:10px;border-radius:10px;margin-bottom:10px}
+.result{margin-top:14px}
+@media(max-width:800px){ .controls{flex-direction:column} table,thead,tbody,th,td,tr{display:block;width:100%} thead tr{display:none} td{border:none;padding-left:40%;position:relative} td:before{position:absolute;left:8px;top:8px;content:attr(data-label);font-weight:bold} }
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>チーム自動振り分け（春カラー）</h1>
+  <h1>チーム自動振り分け</h1>
   <div class="card">
     <div class="controls">
       <button id="loadBtn">シートから読み込み</button>
@@ -39,7 +33,7 @@
       <button id="saveBtn" class="ghost">シートに保存</button>
       <button id="downloadBtn" class="ghost">CSVダウンロード</button>
     </div>
-    <div class="note">※戦力は「12.5M」でも「12.5」でも可。最大100人まで対応。保存にはApps ScriptのWeb API（デプロイ済み）が必要です。</div>
+    <div class="note">※戦力は「12.5M」でも「12.5」でも可。最大100人まで対応。保存にはApps ScriptのWeb APIが必要です。</div>
 
     <table id="playersTable">
       <thead>
@@ -52,11 +46,9 @@
 </div>
 
 <script>
-/* ====== 設定箇所（ここをあなたの値に置き換えてください） ====== */
-const API_KEY = 'YOUR_API_KEY';                // Google Cloud の APIキー（読み込み用）
-const SHEET_ID = 'YOUR_SHEET_ID';              // スプレッドシートのID
-const APPSCRIPT_URL = 'YOUR_APPSCRIPT_URL';    // Apps Script のデプロイURL（POSTで保存）
-/* ========================================================= */
+const API_KEY = 'AIzaSyDQV0ZZ_mTp44YPCQRHWLS4PY0wr4vKpmw';
+const SHEET_ID = '1Q5mAiciojHktw4SYMcYTGgeRRWTgg-NDpigQOKVabFQ';
+const APPSCRIPT_URL = 'https://script.google.com/macros/s/AKfycby1ROMAZyQ-Ua8XQuKYfS0HYqYHwjiV_SpcBKZoV92QfDQVEx0EC-FCO_30nTInV-Hw/exec';
 
 const PROFESSIONS = ['破壊者','守護者','征服者','掌握者'];
 const GOALS = ['希望なし','ベスト64','ベスト32','ベスト16','ベスト8','ベスト4','ベスト3','ベスト2','ベスト1'];
@@ -114,7 +106,6 @@ function parsePower(s){
   return isNaN(n)? 0 : n;
 }
 
-/* ====== Google Sheets 読み込み ====== */
 async function loadFromSheet(){
   if(!API_KEY || API_KEY==='YOUR_API_KEY') return alert('API_KEY を設定してください（コード内）。');
   if(!SHEET_ID || SHEET_ID==='YOUR_SHEET_ID') return alert('SHEET_ID を設定してください（コード内）。');
@@ -124,7 +115,6 @@ async function loadFromSheet(){
     if(!res.ok) throw new Error('Failed to fetch sheet: ' + res.status);
     const data = await res.json();
     const values = data.values || [];
-    // 1行目がヘッダーならスキップ
     let start = 0;
     if(values.length>0 && values[0][0] && /名前|name/i.test(values[0][0])) start = 1;
     el('#playersBody').innerHTML = '';
@@ -144,11 +134,9 @@ async function loadFromSheet(){
   }
 }
 
-/* ====== Apps Script 経由でシートに保存 ====== */
 async function saveToSheet(){
   if(!APPSCRIPT_URL || APPSCRIPT_URL==='YOUR_APPSCRIPT_URL') return alert('APPSCRIPT_URL を設定してください（Apps Script のデプロイURL）。');
   const rows = readTable().map(r => [r.name, r.profession, r.powerStr || r.power.toFixed(2), r.goal]);
-  // ヘッダーを付けて上書き
   const payload = { rows: [['名前','職業','戦力','目標順位'], ...rows] };
   try{
     const res = await fetch(APPSCRIPT_URL, {
@@ -167,18 +155,16 @@ async function saveToSheet(){
   }
 }
 
-/* ====== サンプルで埋める ====== */
 function autoFill(){
   el('#playersBody').innerHTML = '';
   for(let i=0;i<20;i++){
     const prof = PROFESSIONS[i % PROFESSIONS.length];
-    const pow = (Math.random()*18 + 2).toFixed(2); // 2.00〜20.00
+    const pow = (Math.random()*18 + 2).toFixed(2);
     addRow({ name:`プレイヤー${i+1}`, profession:prof, powerStr: pow + 'M', goal: GOALS[Math.floor(Math.random()*GOALS.length)] });
   }
   refreshIndices();
 }
 
-/* ====== CSVダウンロード ====== */
 function downloadCSV(){
   const arr = readTable();
   if(arr.length===0) return alert('データがありません');
@@ -191,7 +177,6 @@ function downloadCSV(){
   URL.revokeObjectURL(url);
 }
 
-/* ====== チーム分けアルゴリズム（職業バランス + 戦力バランスを考慮） ====== */
 function teamify(){
   const all = readTable();
   if(all.length < 4) return alert('プレイヤーが4人未満です');
@@ -205,39 +190,31 @@ function teamify(){
     const list = byGoal[goal];
     const nTeams = Math.floor(list.length / 4);
     if(nTeams <= 0){
-      // 余りとして表示
       const box = document.createElement('div'); box.className='team';
       box.innerHTML = `<h3>${goal} - チームなし（人数 ${list.length}）</h3>`;
       resultsDiv.appendChild(box);
       return;
     }
 
-    // buckets by profession
     const buckets = {}; PROFESSIONS.forEach(p=> buckets[p]=[]);
     list.forEach(p=> buckets[p.profession] ? buckets[p.profession].push(p) : (buckets[PROFESSIONS[0]].push(p)));
     PROFESSIONS.forEach(p => buckets[p].sort((a,b)=>b.power - a.power));
 
-    // init teams
     const teams = Array.from({length:nTeams}, (_,i)=>({id:i+1,members:[],total:0}));
 
-    // Distribute each profession round-robin to teams with smallest total, trying to avoid duplicates initially
     PROFESSIONS.forEach(role=>{
       const arr = buckets[role];
       arr.forEach(player=>{
-        // teams that don't have this profession yet
         const candidates = teams.filter(t => !t.members.some(m=>m.profession===role));
         const pool = candidates.length ? candidates : teams;
-        // choose team with smallest total
         pool.sort((a,b)=>a.total - b.total);
         pool[0].members.push(player);
         pool[0].total += player.power;
       });
     });
 
-    // Collect unassigned (if any duplicates caused >4 or <4)
     const assignedIdx = new Set(teams.flatMap(t=>t.members).map(m=>m.origIndex));
     const unassigned = list.filter(p=> !assignedIdx.has(p.origIndex));
-    // fill teams to 4 with highest-power unassigned
     unassigned.sort((a,b)=>b.power - a.power);
     teams.forEach(t=>{
       while(t.members.length < 4 && unassigned.length){
@@ -247,10 +224,8 @@ function teamify(){
       }
     });
 
-    // If still teams <4 (shouldn't happen), fill from anywhere
     const remaining = list.filter(p => !teams.flatMap(t=>t.members).includes(p));
     remaining.forEach(p=>{
-      // put into smallest total team
       teams.sort((a,b)=>a.total - b.total);
       if(teams[0].members.length < 4){
         teams[0].members.push(p);
@@ -258,7 +233,6 @@ function teamify(){
       }
     });
 
-    // compute average and render
     teams.forEach(t=> t.avg = t.members.length ? (t.total / t.members.length) : 0);
 
     const card = document.createElement('div'); card.className='card'; card.style.marginTop='10px';
@@ -278,7 +252,6 @@ function teamify(){
       finalResults.push({goal:goal,teamId:t.id,avg:t.avg,members:t.members});
     });
 
-    // leftovers
     const assignedFinalIdx = new Set(teams.flatMap(t=>t.members).map(m=>m.origIndex));
     const leftovers = list.filter(p=> !assignedFinalIdx.has(p.origIndex));
     if(leftovers.length){
@@ -290,13 +263,10 @@ function teamify(){
     resultsDiv.appendChild(card);
   });
 
-  // store last results for CSV download if needed
   window._lastTeamResults = finalResults;
 }
 
-/* ====== イベントバインド & 初期70行作成 ====== */
 document.addEventListener('DOMContentLoaded', ()=>{
-  // start with 70 rows
   for(let i=0;i<70;i++) addRow({name:'',profession:PROFESSIONS[i%4],powerStr:'',goal:GOALS[0]});
   refreshIndices();
 
