@@ -1,126 +1,310 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>チーム自動振り分けツール</title>
-  <style>
-    :root{ --bg:#fff8f2; --card:#fff; --accent:#ff8a65; --muted:#7a5c4f; }
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:var(--bg); color:#3a2b24; margin:0; padding:24px}
-    h1{margin:0 0 8px;font-size:20px;color:var(--muted)}
-    .container{max-width:1100px;margin:0 auto}
-    .card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 6px 18px rgba(122,92,79,0.08);}
-    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-    button{background:var(--accent);border:none;color:white;padding:10px 12px;border-radius:8px;cursor:pointer}
-    button.ghost{background:transparent;color:var(--muted);border:1px solid rgba(122,92,79,0.12)}
-    table{width:100%;border-collapse:collapse;margin-top:8px}
-    th,td{padding:8px;border-bottom:1px solid rgba(58,43,36,0.06);text-align:left}
-    th{font-size:13px;color:var(--muted)}
-    input[type=text]{padding:6px;border-radius:8px;border:1px solid rgba(58,43,36,0.08);width:100%}
-    select{padding:6px;border-radius:8px;border:1px solid rgba(58,43,36,0.08)}
-    .result{margin-top:16px}
-    .team{border-radius:10px;padding:10px;margin-bottom:10px;background:linear-gradient(180deg, #fff 0%, #fffaf6 100%);box-shadow:0 4px 12px rgba(122,92,79,0.04)}
-    .team h3{margin:0 0 6px;font-size:15px}
-    small{color:var(--muted)}
-    .flex{display:flex;gap:8px;align-items:center}
-    .row-actions{display:flex;gap:8px}
-    .note{font-size:13px;color:var(--muted);margin-top:8px}
-    @media(max-width:800px){.controls{flex-direction:column}}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>チーム自動振り分け（春カラー）</title>
+<style>
+  :root{
+    --bg:#fff7fb;
+    --card:#fff9fb;
+    --accent:#ff9db2; /* 桜っぽいアクセント */
+    --muted:#8b4b62;
+    --btn-text:#fff;
+  }
+  body{font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:var(--bg); margin:0; padding:20px; color:var(--muted)}
+  .container{max-width:1100px;margin:0 auto}
+  h1{margin:0 0 12px}
+  .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(139,75,98,0.08)}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  button{background:var(--accent);border:none;color:var(--btn-text);padding:8px 12px;border-radius:8px;cursor:pointer}
+  button.ghost{background:transparent;color:var(--muted);border:1px solid rgba(139,75,98,0.12)}
+  .note{font-size:13px;color:var(--muted);margin-bottom:8px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{padding:8px;border-bottom:1px solid rgba(139,75,98,0.06);text-align:left}
+  input[type=text], select{padding:6px;border-radius:8px;border:1px solid rgba(139,75,98,0.08);width:100%}
+  .team{background:linear-gradient(180deg,#fff,#fff7f9);padding:10px;border-radius:10px;margin-bottom:10px}
+  .result{margin-top:14px}
+  @media(max-width:800px){ .controls{flex-direction:column} table,thead,tbody,th,td,tr{display:block;width:100%} thead tr{display:none} td{border:none;padding-left:40%;position:relative} td:before{position:absolute;left:8px;top:8px;content:attr(data-label);font-weight:bold} }
+</style>
 </head>
 <body>
-  <div class="container">
-    <h1>チーム自動振り分け（ナチュラル暖色）</h1>
-    <div class="card">
-      <div class="controls">
-        <button id="addRowBtn">行を追加</button>
-        <button id="autoFillBtn" class="ghost">サンプルで埋める</button>
-        <button id="runBtn">チーム分け開始</button>
-        <button id="downloadBtn" class="ghost">CSVでダウンロード</button>
-      </div>
-      <div class="note">※職業と目標はプルダウン選択。戦力は「12.5M」のように末尾にMをつけて入力できます。最大100人（25チーム）まで対応。行を追加で好きなだけ追加可能。</div>
-
-      <table id="playersTable">
-        <thead>
-          <tr>
-            <th style="width:40px">#</th>
-            <th>名前</th>
-            <th>職業</th>
-            <th>戦力 (M)</th>
-            <th>目標順位</th>
-            <th style="width:120px">操作</th>
-          </tr>
-        </thead>
-        <tbody id="playersBody">
-        </tbody>
-      </table>
+<div class="container">
+  <h1>チーム自動振り分け（春カラー）</h1>
+  <div class="card">
+    <div class="controls">
+      <button id="loadBtn">シートから読み込み</button>
+      <button id="autoFillBtn" class="ghost">サンプルで埋める</button>
+      <button id="teamifyBtn">チーム分け開始</button>
+      <button id="saveBtn" class="ghost">シートに保存</button>
+      <button id="downloadBtn" class="ghost">CSVダウンロード</button>
     </div>
+    <div class="note">※戦力は「12.5M」でも「12.5」でも可。最大100人まで対応。保存にはApps ScriptのWeb API（デプロイ済み）が必要です。</div>
 
+    <table id="playersTable">
+      <thead>
+        <tr><th style="width:40px">#</th><th>名前</th><th>職業</th><th>戦力(M)</th><th>目標順位</th><th style="width:120px">操作</th></tr>
+      </thead>
+      <tbody id="playersBody"></tbody>
+    </table>
     <div id="results" class="result"></div>
   </div>
+</div>
 
 <script>
-window.addEventListener('DOMContentLoaded', () => {
-  const MAX_PLAYERS = 100;
-  const PROFESSIONS = ['破壊者','守護者','征服者','掌握者'];
-  const GOALS = ['希望なし','ベスト64','ベスト32','ベスト16','ベスト8','ベスト4','ベスト3','ベスト2','ベスト1'];
+/* ====== 設定箇所（ここをあなたの値に置き換えてください） ====== */
+const API_KEY = 'YOUR_API_KEY';                // Google Cloud の APIキー（読み込み用）
+const SHEET_ID = 'YOUR_SHEET_ID';              // スプレッドシートのID
+const APPSCRIPT_URL = 'YOUR_APPSCRIPT_URL';    // Apps Script のデプロイURL（POSTで保存）
+/* ========================================================= */
 
-  function createRow(player={}, idx){
-    const tr = document.createElement('tr');
-    tr.dataset.index = idx;
-    tr.innerHTML = `
-      <td>${idx+1}</td>
-      <td><input type="text" class="name" value="${player.name||''}" placeholder="名前"></td>
-      <td><select class="profession">${PROFESSIONS.map(p=>`<option value="${p}" ${player.profession===p? 'selected':''}>${p}</option>`).join('')}</select></td>
-      <td><input type="text" class="power" value="${player.powerStr||''}" placeholder="例: 12.5M"></td>
-      <td><select class="goal">${GOALS.map(g=>`<option value="${g}" ${player.goal===g? 'selected':''}>${g}</option>`).join('')}</select></td>
-      <td class="row-actions">
-        <button class="upBtn ghost">↑</button>
-        <button class="downBtn ghost">↓</button>
-        <button class="delBtn ghost">削除</button>
-      </td>
-    `;
-    tr.querySelector('.delBtn').onclick = ()=>{ tr.remove(); refreshIndices(); };
-    tr.querySelector('.upBtn').onclick = ()=>{ const p = tr.previousElementSibling; if(p) tr.parentNode.insertBefore(tr,p); refreshIndices(); };
-    tr.querySelector('.downBtn').onclick = ()=>{ const n = tr.nextElementSibling; if(n) tr.parentNode.insertBefore(n,tr); refreshIndices(); };
-    return tr;
-  }
+const PROFESSIONS = ['破壊者','守護者','征服者','掌握者'];
+const GOALS = ['希望なし','ベスト64','ベスト32','ベスト16','ベスト8','ベスト4','ベスト3','ベスト2','ベスト1'];
+const MAX_PLAYERS = 100;
 
-  function refreshIndices(){
-    const tbody = document.getElementById('playersBody');
-    [...tbody.children].forEach((tr,i)=>{ tr.dataset.index=i; tr.children[0].textContent = i+1; });
-  }
+function el(q){ return document.querySelector(q); }
+function createRow(player={}, idx){
+  const tr = document.createElement('tr');
+  tr.dataset.index = idx;
+  tr.innerHTML = `
+    <td data-label="#">${idx+1}</td>
+    <td data-label="名前"><input class="name" type="text" value="${player.name||''}" placeholder="名前"></td>
+    <td data-label="職業"><select class="profession">${PROFESSIONS.map(p=>`<option value="${p}" ${player.profession===p?'selected':''}>${p}</option>`).join('')}</select></td>
+    <td data-label="戦力"><input class="power" type="text" value="${player.powerStr||''}" placeholder="例: 12.5M"></td>
+    <td data-label="目標順位"><select class="goal">${GOALS.map(g=>`<option value="${g}" ${player.goal===g?'selected':''}>${g}</option>`).join('')}</select></td>
+    <td data-label="操作" class="row-actions">
+      <button class="upBtn ghost">↑</button>
+      <button class="downBtn ghost">↓</button>
+      <button class="delBtn ghost">削除</button>
+    </td>
+  `;
+  tr.querySelector('.delBtn').onclick = ()=>{ tr.remove(); refreshIndices(); };
+  tr.querySelector('.upBtn').onclick = ()=>{ const p = tr.previousElementSibling; if(p) tr.parentNode.insertBefore(tr,p); refreshIndices(); };
+  tr.querySelector('.downBtn').onclick = ()=>{ const n = tr.nextElementSibling; if(n) tr.parentNode.insertBefore(n,tr); refreshIndices(); };
+  return tr;
+}
+function refreshIndices(){
+  const tbody = el('#playersBody');
+  [...tbody.children].forEach((tr,i)=>{ tr.dataset.index=i; tr.children[0].textContent = i+1; });
+}
+function addRow(player){
+  const tbody = el('#playersBody');
+  if(tbody.children.length >= MAX_PLAYERS) return alert('最大100人です');
+  const tr = createRow(player, tbody.children.length);
+  tbody.appendChild(tr);
+}
+function readTable(){
+  const rows = [];
+  const tbody = el('#playersBody');
+  [...tbody.children].forEach((tr,i)=>{
+    const name = tr.querySelector('.name').value.trim() || `P${i+1}`;
+    const prof = tr.querySelector('.profession').value;
+    const powerStr = tr.querySelector('.power').value.trim();
+    const power = parsePower(powerStr);
+    const goal = tr.querySelector('.goal').value;
+    rows.push({name,profession:prof,power,powerStr,goal,origIndex:i});
+  });
+  return rows;
+}
+function parsePower(s){
+  if(!s) return 0;
+  s = s.replace(',','').toUpperCase();
+  if(s.endsWith('M')) s = s.slice(0,-1);
+  const n = parseFloat(s);
+  return isNaN(n)? 0 : n;
+}
 
-  function addRow(player){
-    const tbody = document.getElementById('playersBody');
-    if(tbody.children.length >= MAX_PLAYERS) return alert('最大100人です');
-    const tr = createRow(player, tbody.children.length);
-    tbody.appendChild(tr);
-  }
-
-  // 初期70行を追加
-  for(let i=0;i<70;i++) addRow({name:'',profession:PROFESSIONS[i%4],powerStr:'',goal:GOALS[0]});
-
-  // ボタンイベント登録
-  document.getElementById('addRowBtn').onclick = () => addRow({name:'',profession:PROFESSIONS[0],powerStr:'',goal:GOALS[0]});
-
-  // サンプルで埋める処理
-  document.getElementById('autoFillBtn').onclick = () => {
-    const tbody = document.getElementById('playersBody');
-    tbody.innerHTML = '';
-    for(let i=0;i<20;i++){
+/* ====== Google Sheets 読み込み ====== */
+async function loadFromSheet(){
+  if(!API_KEY || API_KEY==='YOUR_API_KEY') return alert('API_KEY を設定してください（コード内）。');
+  if(!SHEET_ID || SHEET_ID==='YOUR_SHEET_ID') return alert('SHEET_ID を設定してください（コード内）。');
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Sheet1!A1:Z1000?key=${API_KEY}`;
+  try{
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('Failed to fetch sheet: ' + res.status);
+    const data = await res.json();
+    const values = data.values || [];
+    // 1行目がヘッダーならスキップ
+    let start = 0;
+    if(values.length>0 && values[0][0] && /名前|name/i.test(values[0][0])) start = 1;
+    el('#playersBody').innerHTML = '';
+    for(let i=start;i<values.length;i++){
+      const r = values[i];
       addRow({
-        name: `プレイヤー${i+1}`,
-        profession: PROFESSIONS[i % PROFESSIONS.length],
-        powerStr: (Math.random()*20).toFixed(2) + 'M',
-        goal: GOALS[Math.floor(Math.random()*GOALS.length)]
+        name: r[0] || '',
+        profession: r[1] || PROFESSIONS[0],
+        powerStr: (r[2] !== undefined ? String(r[2]) : ''),
+        goal: r[3] || GOALS[0]
       });
     }
-  };
+    refreshIndices();
+    alert('読み込み完了: ' + (values.length - start) + ' 行');
+  }catch(err){
+    alert('読み込みエラー: ' + err.message);
+  }
+}
 
-  // チーム分け開始（仮）
-  document.getElementById('runBtn').onclick = () => alert('チーム分け処理をここに追加');
-  document.getElementById('downloadBtn').onclick = () => alert('CSVダウンロード処理をここに追加');
+/* ====== Apps Script 経由でシートに保存 ====== */
+async function saveToSheet(){
+  if(!APPSCRIPT_URL || APPSCRIPT_URL==='YOUR_APPSCRIPT_URL') return alert('APPSCRIPT_URL を設定してください（Apps Script のデプロイURL）。');
+  const rows = readTable().map(r => [r.name, r.profession, r.powerStr || r.power.toFixed(2), r.goal]);
+  // ヘッダーを付けて上書き
+  const payload = { rows: [['名前','職業','戦力','目標順位'], ...rows] };
+  try{
+    const res = await fetch(APPSCRIPT_URL, {
+      method:'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const j = await res.json();
+    if(j && j.ok) {
+      alert('保存完了');
+    } else {
+      alert('保存失敗: ' + JSON.stringify(j));
+    }
+  }catch(err){
+    alert('保存エラー: ' + err.message);
+  }
+}
+
+/* ====== サンプルで埋める ====== */
+function autoFill(){
+  el('#playersBody').innerHTML = '';
+  for(let i=0;i<20;i++){
+    const prof = PROFESSIONS[i % PROFESSIONS.length];
+    const pow = (Math.random()*18 + 2).toFixed(2); // 2.00〜20.00
+    addRow({ name:`プレイヤー${i+1}`, profession:prof, powerStr: pow + 'M', goal: GOALS[Math.floor(Math.random()*GOALS.length)] });
+  }
+  refreshIndices();
+}
+
+/* ====== CSVダウンロード ====== */
+function downloadCSV(){
+  const arr = readTable();
+  if(arr.length===0) return alert('データがありません');
+  const rows = [['名前','職業','戦力','目標順位']];
+  arr.forEach(r=> rows.push([r.name,r.profession,(r.powerStr || r.power.toFixed(2)), r.goal]));
+  const csv = rows.map(r => r.map(c=> `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'team_data.csv'; document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* ====== チーム分けアルゴリズム（職業バランス + 戦力バランスを考慮） ====== */
+function teamify(){
+  const all = readTable();
+  if(all.length < 4) return alert('プレイヤーが4人未満です');
+  const byGoal = {};
+  all.forEach(p=> { if(!byGoal[p.goal]) byGoal[p.goal]=[]; byGoal[p.goal].push(p); });
+
+  const resultsDiv = el('#results'); resultsDiv.innerHTML = '';
+  const finalResults = [];
+
+  Object.keys(byGoal).forEach(goal=>{
+    const list = byGoal[goal];
+    const nTeams = Math.floor(list.length / 4);
+    if(nTeams <= 0){
+      // 余りとして表示
+      const box = document.createElement('div'); box.className='team';
+      box.innerHTML = `<h3>${goal} - チームなし（人数 ${list.length}）</h3>`;
+      resultsDiv.appendChild(box);
+      return;
+    }
+
+    // buckets by profession
+    const buckets = {}; PROFESSIONS.forEach(p=> buckets[p]=[]);
+    list.forEach(p=> buckets[p.profession] ? buckets[p.profession].push(p) : (buckets[PROFESSIONS[0]].push(p)));
+    PROFESSIONS.forEach(p => buckets[p].sort((a,b)=>b.power - a.power));
+
+    // init teams
+    const teams = Array.from({length:nTeams}, (_,i)=>({id:i+1,members:[],total:0}));
+
+    // Distribute each profession round-robin to teams with smallest total, trying to avoid duplicates initially
+    PROFESSIONS.forEach(role=>{
+      const arr = buckets[role];
+      arr.forEach(player=>{
+        // teams that don't have this profession yet
+        const candidates = teams.filter(t => !t.members.some(m=>m.profession===role));
+        const pool = candidates.length ? candidates : teams;
+        // choose team with smallest total
+        pool.sort((a,b)=>a.total - b.total);
+        pool[0].members.push(player);
+        pool[0].total += player.power;
+      });
+    });
+
+    // Collect unassigned (if any duplicates caused >4 or <4)
+    const assignedIdx = new Set(teams.flatMap(t=>t.members).map(m=>m.origIndex));
+    const unassigned = list.filter(p=> !assignedIdx.has(p.origIndex));
+    // fill teams to 4 with highest-power unassigned
+    unassigned.sort((a,b)=>b.power - a.power);
+    teams.forEach(t=>{
+      while(t.members.length < 4 && unassigned.length){
+        const p = unassigned.shift();
+        t.members.push(p);
+        t.total += p.power;
+      }
+    });
+
+    // If still teams <4 (shouldn't happen), fill from anywhere
+    const remaining = list.filter(p => !teams.flatMap(t=>t.members).includes(p));
+    remaining.forEach(p=>{
+      // put into smallest total team
+      teams.sort((a,b)=>a.total - b.total);
+      if(teams[0].members.length < 4){
+        teams[0].members.push(p);
+        teams[0].total += p.power;
+      }
+    });
+
+    // compute average and render
+    teams.forEach(t=> t.avg = t.members.length ? (t.total / t.members.length) : 0);
+
+    const card = document.createElement('div'); card.className='card'; card.style.marginTop='10px';
+    const title = document.createElement('h2'); title.textContent = `${goal} ： ${teams.length} 組（${list.length}人）`; title.style.fontSize = '16px';
+    card.appendChild(title);
+
+    teams.forEach(t=>{
+      const box = document.createElement('div'); box.className='team';
+      const h = document.createElement('h3'); h.textContent = `チーム ${t.id} - 平均戦力: ${t.avg.toFixed(2)}M`;
+      box.appendChild(h);
+      t.members.forEach(m=>{
+        const d = document.createElement('div');
+        d.innerHTML = `<strong>${m.profession}</strong>: ${m.name} (${m.power.toFixed(2)}M) <small>目標:${m.goal}</small>`;
+        box.appendChild(d);
+      });
+      card.appendChild(box);
+      finalResults.push({goal:goal,teamId:t.id,avg:t.avg,members:t.members});
+    });
+
+    // leftovers
+    const assignedFinalIdx = new Set(teams.flatMap(t=>t.members).map(m=>m.origIndex));
+    const leftovers = list.filter(p=> !assignedFinalIdx.has(p.origIndex));
+    if(leftovers.length){
+      const lo = document.createElement('div'); lo.innerHTML = `<strong>余り: ${leftovers.length}人</strong>`;
+      leftovers.forEach(p=>{ const d = document.createElement('div'); d.textContent = `${p.name} / ${p.profession} / ${p.power.toFixed(2)}M`; lo.appendChild(d); });
+      card.appendChild(lo);
+    }
+
+    resultsDiv.appendChild(card);
+  });
+
+  // store last results for CSV download if needed
+  window._lastTeamResults = finalResults;
+}
+
+/* ====== イベントバインド & 初期70行作成 ====== */
+document.addEventListener('DOMContentLoaded', ()=>{
+  // start with 70 rows
+  for(let i=0;i<70;i++) addRow({name:'',profession:PROFESSIONS[i%4],powerStr:'',goal:GOALS[0]});
+  refreshIndices();
+
+  el('#autoFillBtn').onclick = autoFill;
+  el('#downloadBtn').onclick = downloadCSV;
+  el('#teamifyBtn').onclick = teamify;
+  el('#loadBtn').onclick = loadFromSheet;
+  el('#saveBtn').onclick = saveToSheet;
 });
 </script>
 </body>
