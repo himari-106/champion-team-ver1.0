@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>チーム自動振り分けツール</title>
+  <style>
+    :root{
+      --bg:#fff8f2; --card:#fff; --accent:#ff8a65; --muted:#7a5c4f;
+    }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:var(--bg); color:#3a2b24; margin:0; padding:24px}
+    h1{margin:0 0 8px;font-size:20px;color:var(--muted)}
+    .container{max-width:1100px;margin:0 auto}
+    .card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 6px 18px rgba(122,92,79,0.08);}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    button{background:var(--accent);border:none;color:white;padding:10px 12px;border-radius:8px;cursor:pointer}
+    button.ghost{background:transparent;color:var(--muted);border:1px solid rgba(122,92,79,0.12)}
+    table{width:100%;border-collapse:collapse;margin-top:8px;table-layout:fixed;word-wrap:break-word;}
+    th,td{padding:8px;border-bottom:1px solid rgba(58,43,36,0.06);text-align:left}
+    th{font-size:13px;color:var(--muted)}
+    input[type=text]{padding:6px;border-radius:8px;border:1px solid rgba(58,43,36,0.08);width:100%}
+    select{padding:6px;border-radius:8px;border:1px solid rgba(58,43,36,0.08);width:100%}
+    .result{margin-top:16px}
+    .team{border-radius:10px;padding:10px;margin-bottom:10px;background:linear-gradient(180deg, #fff 0%, #fffaf6 100%);box-shadow:0 4px 12px rgba(122,92,79,0.04)}
+    .team h3{margin:0 0 6px;font-size:15px}
+    small{color:var(--muted)}
+    .flex{display:flex;gap:8px;align-items:center}
+    .row-actions{display:flex;gap:8px}
+    .note{font-size:13px;color:var(--muted);margin-top:8px}
+    @media(max-width:800px){
+      .controls{flex-direction:column}
+      table, thead, tbody, th, td, tr{display:block;width:100%}
+      thead tr{display:none}
+      td{border:none;position:relative;padding-left:50%}
+      td:before{position:absolute;top:8px;left:8px;width:45%;padding-right:10px;white-space:nowrap;font-weight:bold;content:attr(data-label)}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>チーム自動振り分け（ナチュラル暖色）</h1>
+    <div class="card">
+      <div class="controls">
+        <button id="addRowBtn">行を追加</button>
+        <button id="autoFillBtn" class="ghost">サンプルで埋める</button>
+        <button id="clearBtn" class="ghost">全クリア</button>
+        <button id="runBtn">チーム分け開始</button>
+        <button id="downloadBtn" class="ghost">CSVでダウンロード</button>
+      </div>
+
+      <div class="note">※職業と目標はプルダウン選択。戦力は「12.5M」のように末尾にMをつけて入力できます。最大100人（25チーム）まで対応。行を追加で好きなだけ追加可能。</div>
+
+      <table id="playersTable">
+        <thead>
+          <tr>
+            <th style="width:40px">#</th>
+            <th>名前</th>
+            <th>職業</th>
+            <th>戦力 (M)</th>
+            <th>目標順位</th>
+            <th style="width:120px">操作</th>
+          </tr>
+        </thead>
+        <tbody id="playersBody">
+        </tbody>
+      </table>
+    </div>
+
+    <div id="results" class="result"></div>
+  </div>
+
+<script>
+const MAX_PLAYERS = 100;
+const PROFESSIONS = ['破壊者','守護者','征服者','掌握者'];
+const GOALS = ['希望なし','ベスト64','ベスト32','ベスト16','ベスト8','ベスト4','ベスト3','ベスト2','ベスト1'];
+
+function createRow(player={}, idx){
+  const tr = document.createElement('tr');
+  tr.dataset.index = idx;
+  tr.innerHTML = `
+    <td data-label="#">${idx+1}</td>
+    <td data-label="名前"><input type="text" class="name" value="${player.name||''}" placeholder="名前"></td>
+    <td data-label="職業">
+      <select class="profession">${PROFESSIONS.map(p=>`<option value="${p}" ${player.profession===p? 'selected':''}>${p}</option>`).join('')}</select>
+    </td>
+    <td data-label="戦力"><input type="text" class="power" value="${player.powerStr||''}" placeholder="例: 12.5M"></td>
+    <td data-label="目標順位">
+      <select class="goal">${GOALS.map(g=>`<option value="${g}" ${player.goal===g? 'selected':''}>${g}</option>`).join('')}</select>
+    </td>
+    <td data-label="操作" class="row-actions">
+      <button class="upBtn ghost">↑</button>
+      <button class="downBtn ghost">↓</button>
+      <button class="delBtn ghost">削除</button>
+    </td>
+  `;
+  tr.querySelector('.delBtn').onclick = ()=>{ tr.remove(); refreshIndices(); };
+  tr.querySelector('.upBtn').onclick = ()=>{ const p = tr.previousElementSibling; if(p) tr.parentNode.insertBefore(tr,p); refreshIndices(); };
+  tr.querySelector('.downBtn').onclick = ()=>{ const n = tr.nextElementSibling; if(n) tr.parentNode.insertBefore(n,tr); refreshIndices(); };
+  return tr;
+}
+
+function refreshIndices(){
+  const tbody = document.getElementById('playersBody');
+  [...tbody.children].forEach((tr,i)=>{ tr.dataset.index=i; tr.children[0].textContent = i+1; });
+}
+
+function addRow(player){
+  const tbody = document.getElementById('playersBody');
+  if(tbody.children.length >= MAX_PLAYERS) return alert('最大100人です');
+  const tr = createRow(player, tbody.children.length);
+  tbody.appendChild(tr);
+}
+
+// 標準で70行追加
+for(let i=0;i<70;i++) addRow({name:'',profession:PROFESSIONS[i%4],powerStr:'',goal:GOALS[0]});
+</script>
+</body>
+</html>
