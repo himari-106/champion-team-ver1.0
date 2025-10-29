@@ -1,281 +1,149 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>チーム自動振り分け</title>
-<style>
-:root{--bg:#fff7fb;--card:#fff9fb;--accent:#ff9db2;--muted:#8b4b62;--btn-text:#fff;}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg);margin:0;padding:20px;color:var(--muted)}
-.container{max-width:1100px;margin:0 auto}
-h1{margin:0 0 12px}
-.card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(139,75,98,0.08)}
-.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-button{background:var(--accent);border:none;color:var(--btn-text);padding:8px 12px;border-radius:8px;cursor:pointer}
-button.ghost{background:transparent;color:var(--muted);border:1px solid rgba(139,75,98,0.12)}
-.note{font-size:13px;color:var(--muted);margin-bottom:8px}
-table{width:100%;border-collapse:collapse;margin-top:8px}
-th,td{padding:8px;border-bottom:1px solid rgba(139,75,98,0.06);text-align:left}
-input[type=text], select{padding:6px;border-radius:8px;border:1px solid rgba(139,75,98,0.08);width:100%}
-.team{background:linear-gradient(180deg,#fff,#fff7f9);padding:10px;border-radius:10px;margin-bottom:10px}
-.result{margin-top:14px}
-@media(max-width:800px){ .controls{flex-direction:column} table,thead,tbody,th,td,tr{display:block;width:100%} thead tr{display:none} td{border:none;padding-left:40%;position:relative} td:before{position:absolute;left:8px;top:8px;content:attr(data-label);font-weight:bold} }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>チーム自動振り分けツール</title>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #fffafc;
+      color: #444;
+      margin: 0;
+      padding: 0;
+    }
+
+    header {
+      background: linear-gradient(90deg, #ffb7c5, #ffe7a1, #b8e5c7);
+      padding: 20px;
+      text-align: center;
+      font-size: 1.6em;
+      font-weight: bold;
+      color: #333;
+      letter-spacing: 0.05em;
+    }
+
+    main {
+      max-width: 900px;
+      margin: 25px auto;
+      background: #ffffffc9;
+      padding: 20px;
+      border-radius: 15px;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .center {
+      text-align: center;
+    }
+
+    button {
+      background: #ffb7c5;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 25px;
+      color: white;
+      font-size: 1em;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    button:hover {
+      background: #ff99ae;
+    }
+
+    .team-card {
+      background: #f8fff6;
+      border: 2px solid #b8e5c7;
+      border-radius: 10px;
+      padding: 10px 15px;
+      margin-bottom: 20px;
+    }
+
+    .team-title {
+      font-weight: bold;
+      color: #4a8b65;
+      margin-bottom: 5px;
+      font-size: 1.1em;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .member {
+      margin: 2px 0;
+    }
+
+    .note {
+      font-size: 0.9em;
+      color: #666;
+      text-align: center;
+      margin-top: 10px;
+    }
+  </style>
 </head>
 <body>
-<div class="container">
-  <h1>チーム自動振り分け</h1>
-  <div class="card">
-    <div class="controls">
-      <button id="loadBtn">シートから読み込み</button>
-      <button id="autoFillBtn" class="ghost">サンプルで埋める</button>
-      <button id="teamifyBtn">チーム分け開始</button>
-      <button id="saveBtn" class="ghost">シートに保存</button>
-      <button id="downloadBtn" class="ghost">CSVダウンロード</button>
+  <header>チーム自動振り分けツール</header>
+  <main>
+    <div class="center">
+      <button id="fetchBtn">スプレッドシートから取得・振り分け</button>
     </div>
-    <div class="note">※戦力は「12.5M」でも「12.5」でも可。最大100人まで対応。保存にはApps ScriptのWeb APIが必要です。</div>
+    <div id="resultArea" style="margin-top:25px;"></div>
+    <div class="note">※スプレッドシートの更新内容が反映されるまで数秒かかる場合があります。</div>
+  </main>
 
-    <table id="playersTable">
-      <thead>
-        <tr><th style="width:40px">#</th><th>名前</th><th>職業</th><th>戦力(M)</th><th>目標順位</th><th style="width:120px">操作</th></tr>
-      </thead>
-      <tbody id="playersBody"></tbody>
-    </table>
-    <div id="results" class="result"></div>
-  </div>
-</div>
+  <script>
+    const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycby1ROMAZyQ-Ua8XQuKYfS0HYqYHwjiV_SpcBKZoV92QfDQVEx0EC-FCO_30nTInV-Hw/exec"; // あなたのApps Script URL
+    const SHEET_ID = "1Q5mAiciojHktw4SYMcYTGgeRRWTgg-NDpigQOKVabFQ"; // あなたのスプレッドシートID
+    const TEAM_SIZE = 4;
 
-<script>
-const API_KEY = 'AIzaSyDQV0ZZ_mTp44YPCQRHWLS4PY0wr4vKpmw';
-const SHEET_ID = '1Q5mAiciojHktw4SYMcYTGgeRRWTgg-NDpigQOKVabFQ';
-const APPSCRIPT_URL = 'https://script.google.com/macros/s/AKfycby1ROMAZyQ-Ua8XQuKYfS0HYqYHwjiV_SpcBKZoV92QfDQVEx0EC-FCO_30nTInV-Hw/exec';
+    document.getElementById("fetchBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("fetchBtn");
+      btn.disabled = true;
+      btn.innerText = "取得中...";
 
-const PROFESSIONS = ['破壊者','守護者','征服者','掌握者'];
-const GOALS = ['希望なし','ベスト64','ベスト32','ベスト16','ベスト8','ベスト4','ベスト3','ベスト2','ベスト1'];
-const MAX_PLAYERS = 100;
+      try {
+        const res = await fetch(`${APPSCRIPT_URL}?sheetId=${SHEET_ID}`);
+        const data = await res.json();
 
-function el(q){ return document.querySelector(q); }
-function createRow(player={}, idx){
-  const tr = document.createElement('tr');
-  tr.dataset.index = idx;
-  tr.innerHTML = `
-    <td data-label="#">${idx+1}</td>
-    <td data-label="名前"><input class="name" type="text" value="${player.name||''}" placeholder="名前"></td>
-    <td data-label="職業"><select class="profession">${PROFESSIONS.map(p=>`<option value="${p}" ${player.profession===p?'selected':''}>${p}</option>`).join('')}</select></td>
-    <td data-label="戦力"><input class="power" type="text" value="${player.powerStr||''}" placeholder="例: 12.5M"></td>
-    <td data-label="目標順位"><select class="goal">${GOALS.map(g=>`<option value="${g}" ${player.goal===g?'selected':''}>${g}</option>`).join('')}</select></td>
-    <td data-label="操作" class="row-actions">
-      <button class="upBtn ghost">↑</button>
-      <button class="downBtn ghost">↓</button>
-      <button class="delBtn ghost">削除</button>
-    </td>
-  `;
-  tr.querySelector('.delBtn').onclick = ()=>{ tr.remove(); refreshIndices(); };
-  tr.querySelector('.upBtn').onclick = ()=>{ const p = tr.previousElementSibling; if(p) tr.parentNode.insertBefore(tr,p); refreshIndices(); };
-  tr.querySelector('.downBtn').onclick = ()=>{ const n = tr.nextElementSibling; if(n) tr.parentNode.insertBefore(n,tr); refreshIndices(); };
-  return tr;
-}
-function refreshIndices(){
-  const tbody = el('#playersBody');
-  [...tbody.children].forEach((tr,i)=>{ tr.dataset.index=i; tr.children[0].textContent = i+1; });
-}
-function addRow(player){
-  const tbody = el('#playersBody');
-  if(tbody.children.length >= MAX_PLAYERS) return alert('最大100人です');
-  const tr = createRow(player, tbody.children.length);
-  tbody.appendChild(tr);
-}
-function readTable(){
-  const rows = [];
-  const tbody = el('#playersBody');
-  [...tbody.children].forEach((tr,i)=>{
-    const name = tr.querySelector('.name').value.trim() || `P${i+1}`;
-    const prof = tr.querySelector('.profession').value;
-    const powerStr = tr.querySelector('.power').value.trim();
-    const power = parsePower(powerStr);
-    const goal = tr.querySelector('.goal').value;
-    rows.push({name,profession:prof,power,powerStr,goal,origIndex:i});
-  });
-  return rows;
-}
-function parsePower(s){
-  if(!s) return 0;
-  s = s.replace(',','').toUpperCase();
-  if(s.endsWith('M')) s = s.slice(0,-1);
-  const n = parseFloat(s);
-  return isNaN(n)? 0 : n;
-}
+        const members = data.filter(p => p.name && p.skill)
+                            .map(p => ({ name: p.name, skill: Number(p.skill) }))
+                            .sort((a, b) => b.skill - a.skill);
 
-async function loadFromSheet(){
-  if(!API_KEY || API_KEY==='YOUR_API_KEY') return alert('API_KEY を設定してください（コード内）。');
-  if(!SHEET_ID || SHEET_ID==='YOUR_SHEET_ID') return alert('SHEET_ID を設定してください（コード内）。');
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Sheet1!A1:Z1000?key=${API_KEY}`;
-  try{
-    const res = await fetch(url);
-    if(!res.ok) throw new Error('Failed to fetch sheet: ' + res.status);
-    const data = await res.json();
-    const values = data.values || [];
-    let start = 0;
-    if(values.length>0 && values[0][0] && /名前|name/i.test(values[0][0])) start = 1;
-    el('#playersBody').innerHTML = '';
-    for(let i=start;i<values.length;i++){
-      const r = values[i];
-      addRow({
-        name: r[0] || '',
-        profession: r[1] || PROFESSIONS[0],
-        powerStr: (r[2] !== undefined ? String(r[2]) : ''),
-        goal: r[3] || GOALS[0]
-      });
-    }
-    refreshIndices();
-    alert('読み込み完了: ' + (values.length - start) + ' 行');
-  }catch(err){
-    alert('読み込みエラー: ' + err.message);
-  }
-}
+        const teams = [];
+        const teamCount = Math.ceil(members.length / TEAM_SIZE);
 
-async function saveToSheet(){
-  if(!APPSCRIPT_URL || APPSCRIPT_URL==='YOUR_APPSCRIPT_URL') return alert('APPSCRIPT_URL を設定してください（Apps Script のデプロイURL）。');
-  const rows = readTable().map(r => [r.name, r.profession, r.powerStr || r.power.toFixed(2), r.goal]);
-  const payload = { rows: [['名前','職業','戦力','目標順位'], ...rows] };
-  try{
-    const res = await fetch(APPSCRIPT_URL, {
-      method:'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
-    const j = await res.json();
-    if(j && j.ok) {
-      alert('保存完了');
-    } else {
-      alert('保存失敗: ' + JSON.stringify(j));
-    }
-  }catch(err){
-    alert('保存エラー: ' + err.message);
-  }
-}
+        for (let i = 0; i < teamCount; i++) teams.push([]);
 
-function autoFill(){
-  el('#playersBody').innerHTML = '';
-  for(let i=0;i<20;i++){
-    const prof = PROFESSIONS[i % PROFESSIONS.length];
-    const pow = (Math.random()*18 + 2).toFixed(2);
-    addRow({ name:`プレイヤー${i+1}`, profession:prof, powerStr: pow + 'M', goal: GOALS[Math.floor(Math.random()*GOALS.length)] });
-  }
-  refreshIndices();
-}
+        // スキルレベルを均等に分散
+        members.forEach((member, idx) => {
+          const teamIndex = idx % teamCount;
+          teams[teamIndex].push(member);
+        });
 
-function downloadCSV(){
-  const arr = readTable();
-  if(arr.length===0) return alert('データがありません');
-  const rows = [['名前','職業','戦力','目標順位']];
-  arr.forEach(r=> rows.push([r.name,r.profession,(r.powerStr || r.power.toFixed(2)), r.goal]));
-  const csv = rows.map(r => r.map(c=> `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob = new Blob([csv], {type:'text/csv'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = 'team_data.csv'; document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
-}
+        const resultArea = document.getElementById("resultArea");
+        resultArea.innerHTML = "";
 
-function teamify(){
-  const all = readTable();
-  if(all.length < 4) return alert('プレイヤーが4人未満です');
-  const byGoal = {};
-  all.forEach(p=> { if(!byGoal[p.goal]) byGoal[p.goal]=[]; byGoal[p.goal].push(p); });
-
-  const resultsDiv = el('#results'); resultsDiv.innerHTML = '';
-  const finalResults = [];
-
-  Object.keys(byGoal).forEach(goal=>{
-    const list = byGoal[goal];
-    const nTeams = Math.floor(list.length / 4);
-    if(nTeams <= 0){
-      const box = document.createElement('div'); box.className='team';
-      box.innerHTML = `<h3>${goal} - チームなし（人数 ${list.length}）</h3>`;
-      resultsDiv.appendChild(box);
-      return;
-    }
-
-    const buckets = {}; PROFESSIONS.forEach(p=> buckets[p]=[]);
-    list.forEach(p=> buckets[p.profession] ? buckets[p.profession].push(p) : (buckets[PROFESSIONS[0]].push(p)));
-    PROFESSIONS.forEach(p => buckets[p].sort((a,b)=>b.power - a.power));
-
-    const teams = Array.from({length:nTeams}, (_,i)=>({id:i+1,members:[],total:0}));
-
-    PROFESSIONS.forEach(role=>{
-      const arr = buckets[role];
-      arr.forEach(player=>{
-        const candidates = teams.filter(t => !t.members.some(m=>m.profession===role));
-        const pool = candidates.length ? candidates : teams;
-        pool.sort((a,b)=>a.total - b.total);
-        pool[0].members.push(player);
-        pool[0].total += player.power;
-      });
-    });
-
-    const assignedIdx = new Set(teams.flatMap(t=>t.members).map(m=>m.origIndex));
-    const unassigned = list.filter(p=> !assignedIdx.has(p.origIndex));
-    unassigned.sort((a,b)=>b.power - a.power);
-    teams.forEach(t=>{
-      while(t.members.length < 4 && unassigned.length){
-        const p = unassigned.shift();
-        t.members.push(p);
-        t.total += p.power;
+        teams.forEach((team, i) => {
+          const div = document.createElement("div");
+          div.className = "team-card";
+          div.innerHTML = `
+            <div class="team-title">チーム ${i + 1}</div>
+            <ul>
+              ${team.map(m => `<li class="member">${m.name}（Lv.${m.skill}）</li>`).join("")}
+            </ul>
+          `;
+          resultArea.appendChild(div);
+        });
+      } catch (err) {
+        alert("スプレッドシートの取得に失敗しました。URLや設定を確認してください。");
+        console.error(err);
       }
+
+      btn.disabled = false;
+      btn.innerText = "スプレッドシートから取得・振り分け";
     });
-
-    const remaining = list.filter(p => !teams.flatMap(t=>t.members).includes(p));
-    remaining.forEach(p=>{
-      teams.sort((a,b)=>a.total - b.total);
-      if(teams[0].members.length < 4){
-        teams[0].members.push(p);
-        teams[0].total += p.power;
-      }
-    });
-
-    teams.forEach(t=> t.avg = t.members.length ? (t.total / t.members.length) : 0);
-
-    const card = document.createElement('div'); card.className='card'; card.style.marginTop='10px';
-    const title = document.createElement('h2'); title.textContent = `${goal} ： ${teams.length} 組（${list.length}人）`; title.style.fontSize = '16px';
-    card.appendChild(title);
-
-    teams.forEach(t=>{
-      const box = document.createElement('div'); box.className='team';
-      const h = document.createElement('h3'); h.textContent = `チーム ${t.id} - 平均戦力: ${t.avg.toFixed(2)}M`;
-      box.appendChild(h);
-      t.members.forEach(m=>{
-        const d = document.createElement('div');
-        d.innerHTML = `<strong>${m.profession}</strong>: ${m.name} (${m.power.toFixed(2)}M) <small>目標:${m.goal}</small>`;
-        box.appendChild(d);
-      });
-      card.appendChild(box);
-      finalResults.push({goal:goal,teamId:t.id,avg:t.avg,members:t.members});
-    });
-
-    const assignedFinalIdx = new Set(teams.flatMap(t=>t.members).map(m=>m.origIndex));
-    const leftovers = list.filter(p=> !assignedFinalIdx.has(p.origIndex));
-    if(leftovers.length){
-      const lo = document.createElement('div'); lo.innerHTML = `<strong>余り: ${leftovers.length}人</strong>`;
-      leftovers.forEach(p=>{ const d = document.createElement('div'); d.textContent = `${p.name} / ${p.profession} / ${p.power.toFixed(2)}M`; lo.appendChild(d); });
-      card.appendChild(lo);
-    }
-
-    resultsDiv.appendChild(card);
-  });
-
-  window._lastTeamResults = finalResults;
-}
-
-document.addEventListener('DOMContentLoaded', ()=>{
-  for(let i=0;i<70;i++) addRow({name:'',profession:PROFESSIONS[i%4],powerStr:'',goal:GOALS[0]});
-  refreshIndices();
-
-  el('#autoFillBtn').onclick = autoFill;
-  el('#downloadBtn').onclick = downloadCSV;
-  el('#teamifyBtn').onclick = teamify;
-  el('#loadBtn').onclick = loadFromSheet;
-  el('#saveBtn').onclick = saveToSheet;
-});
-</script>
+  </script>
 </body>
 </html>
