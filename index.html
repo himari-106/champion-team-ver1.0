@@ -12,7 +12,6 @@
       margin: 0;
       padding: 0;
     }
-
     header {
       background: linear-gradient(90deg, #ffb7c5, #ffe7a1, #b8e5c7);
       padding: 20px;
@@ -22,7 +21,6 @@
       color: #333;
       letter-spacing: 0.05em;
     }
-
     main {
       max-width: 900px;
       margin: 25px auto;
@@ -31,11 +29,7 @@
       border-radius: 15px;
       box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
     }
-
-    .center {
-      text-align: center;
-    }
-
+    .center { text-align: center; }
     button {
       background: #ffb7c5;
       border: none;
@@ -46,11 +40,7 @@
       cursor: pointer;
       transition: 0.2s;
     }
-
-    button:hover {
-      background: #ff99ae;
-    }
-
+    button:hover { background: #ff99ae; }
     .team-card {
       background: #f8fff6;
       border: 2px solid #b8e5c7;
@@ -58,23 +48,14 @@
       padding: 10px 15px;
       margin-bottom: 20px;
     }
-
     .team-title {
       font-weight: bold;
       color: #4a8b65;
       margin-bottom: 5px;
       font-size: 1.1em;
     }
-
-    ul {
-      margin: 0;
-      padding-left: 20px;
-    }
-
-    .member {
-      margin: 2px 0;
-    }
-
+    ul { margin: 0; padding-left: 20px; }
+    .member { margin: 2px 0; }
     .note {
       font-size: 0.9em;
       color: #666;
@@ -94,8 +75,8 @@
   </main>
 
   <script>
-    const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzkJVZy-T89Ve5FqC4wJ7MyW2mXbaVoKHW7ftT2LEdckI_ecLYyoYUVnSsRIEUaQgeK/exec"; // あなたのApps Script URL
-    const SHEET_ID = "1Q5mAiciojHktw4SYMcYTGgeRRWTgg-NDpigQOKVabFQ"; // あなたのスプレッドシートID
+    // ✅ あなたのApps ScriptウェブアプリURL
+    const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbw706v02H8g5OHpAamD4M0wnc3XKiBTWywx_f62M45KCPqSBE4dnahT-Iy2yWZAs88F9g/exec";
     const TEAM_SIZE = 4;
 
     document.getElementById("fetchBtn").addEventListener("click", async () => {
@@ -104,27 +85,33 @@
       btn.innerText = "取得中...";
 
       try {
-        const res = await fetch(`${APPSCRIPT_URL}?sheetId=${SHEET_ID}`);
-        const data = await res.json();
+        // CORS回避＋JSON取得
+        const res = await fetch(`${APPSCRIPT_URL}?t=${Date.now()}`);
+        const text = await res.text();
+        const data = JSON.parse(text);
 
-        const members = data.filter(p => p.name && p.skill)
-                            .map(p => ({ name: p.name, skill: Number(p.skill) }))
-                            .sort((a, b) => b.skill - a.skill);
+        // nameとskillを整形
+        const members = data
+          .filter(p => p.name && p.skill)
+          .map(p => ({ name: p.name, skill: Number(p.skill) }))
+          .sort((a, b) => b.skill - a.skill);
 
         const teams = [];
         const teamCount = Math.ceil(members.length / TEAM_SIZE);
-
         for (let i = 0; i < teamCount; i++) teams.push([]);
 
-        // スキルレベルを均等に分散
-        members.forEach((member, idx) => {
-          const teamIndex = idx % teamCount;
-          teams[teamIndex].push(member);
+        // 公平なスネーク分配
+        let direction = 1;
+        let teamIndex = 0;
+        members.forEach(m => {
+          teams[teamIndex].push(m);
+          teamIndex += direction;
+          if (teamIndex === teamCount - 1 || teamIndex === 0) direction *= -1;
         });
 
+        // 結果を表示
         const resultArea = document.getElementById("resultArea");
         resultArea.innerHTML = "";
-
         teams.forEach((team, i) => {
           const div = document.createElement("div");
           div.className = "team-card";
