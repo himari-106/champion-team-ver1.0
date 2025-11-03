@@ -75,9 +75,9 @@
   </main>
 
   <script>
-    // ✅ あなたのApps ScriptウェブアプリURL
+    // ✅ あなたのApps Script WebアプリURL
     const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbw706v02H8g5OHpAamD4M0wnc3XKiBTWywx_f62M45KCPqSBE4dnahT-Iy2yWZAs88F9g/exec";
-    const TEAM_SIZE = 4;
+    const TEAM_SIZE = 4; // 1チームあたりの人数
 
     document.getElementById("fetchBtn").addEventListener("click", async () => {
       const btn = document.getElementById("fetchBtn");
@@ -85,22 +85,20 @@
       btn.innerText = "取得中...";
 
       try {
-        // CORS回避＋JSON取得
         const res = await fetch(`${APPSCRIPT_URL}?t=${Date.now()}`);
         const text = await res.text();
         const data = JSON.parse(text);
 
-        // nameとskillを整形
+        // 戦力が数値のものだけをソート
         const members = data
-          .filter(p => p.name && p.skill)
-          .map(p => ({ name: p.name, skill: Number(p.skill) }))
-          .sort((a, b) => b.skill - a.skill);
+          .filter(p => p.name && !isNaN(p.power))
+          .sort((a, b) => b.power - a.power);
 
         const teams = [];
         const teamCount = Math.ceil(members.length / TEAM_SIZE);
         for (let i = 0; i < teamCount; i++) teams.push([]);
 
-        // 公平なスネーク分配
+        // 公平にスネーク分配
         let direction = 1;
         let teamIndex = 0;
         members.forEach(m => {
@@ -109,7 +107,7 @@
           if (teamIndex === teamCount - 1 || teamIndex === 0) direction *= -1;
         });
 
-        // 結果を表示
+        // チーム表示
         const resultArea = document.getElementById("resultArea");
         resultArea.innerHTML = "";
         teams.forEach((team, i) => {
@@ -118,7 +116,11 @@
           div.innerHTML = `
             <div class="team-title">チーム ${i + 1}</div>
             <ul>
-              ${team.map(m => `<li class="member">${m.name}（Lv.${m.skill}）</li>`).join("")}
+              ${team.map(m => `
+                <li class="member">
+                  ${m.name}（${m.job}）<br>
+                  戦力: ${m.power} ／ 目標順位: ${m.goal || "-"} ／ 固定チーム: ${m.team || "-"}
+                </li>`).join("")}
             </ul>
           `;
           resultArea.appendChild(div);
