@@ -74,148 +74,121 @@
   </main>
 
   <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbze-1KAMTT6rGDBELn4BoeePrGimzH68HRhyj-mLr0dzFejudxQtvtZWLtKHYsCMNeY-g/exec";
-      const TEAM_SIZE = 4;
-      const ROLES = ["破壊者", "掌握者", "征服者", "守護者"];
-      const FIXED_NONE = ["", "なし", "-", "無所属"];
+  document.addEventListener("DOMContentLoaded", () => {
+    // ✅ 新しいApps Script URL
+    const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbx3KOAU2W6USgkUlzyOQy6z7dRz_lzss4wwNdZ6lqSnYwb77QwQweY-w2_qQR9KgM10/exec";
+    const TEAM_SIZE = 4;
+    const ROLES = ["破壊者", "掌握者", "征服者", "守護者"];
+    const FIXED_NONE = ["", "なし", "-", "無所属"];
 
-      // チーム生成
-      function makeTeam(goal) {
-        return { members: [], power: 0, roles: new Set(), goal };
-      }
+    function makeTeam(goal) {
+      return { members: [], power: 0, roles: new Set(), goal };
+    }
+    function addMember(team, member) {
+      team.members.push(member);
+      team.power += member.power || 0;
+      team.roles.add(member.job);
+    }
 
-      function addMember(team, member) {
-        team.members.push(member);
-        team.power += member.power || 0;
-        team.roles.add(member.job);
-      }
+    document.getElementById("fetchBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("fetchBtn");
+      btn.disabled = true;
+      btn.innerText = "取得中...";
 
-      // メイン処理
-      document.getElementById("fetchBtn").addEventListener("click", async () => {
-        const btn = document.getElementById("fetchBtn");
-        btn.disabled = true;
-        btn.innerText = "取得中...";
+      try {
+        const res = await fetch(`${APPSCRIPT_URL}?t=${Date.now()}`);
+        const text = await res.text();
+        const data = JSON.parse(text);
 
-        try {
-          const res = await fetch(`${APPSCRIPT_URL}?t=${Date.now()}`);
-          const text = await res.text();
-          const data = JSON.parse(text);
+        const members = data.filter(d => d.name && d.job && d.goal)
+          .map(d => ({
+            name: d.name.trim(),
+            job: d.job.trim(),
+            power: Number(d.power) || 0,
+            goal: d.goal.trim(),
+            team: d.team?.trim() || ""
+          }));
 
-          // データ整形
-          const members = data
-            .filter(d => d.name && d.job && d.goal)
-            .map(d => ({
-              name: d.name.trim(),
-              job: d.job.trim(),
-              power: Number(d.power) || 0,
-              goal: d.goal.trim(),
-              team: d.team?.trim() || ""
-            }));
+        const goals = [...new Set(members.map(m => m.goal))];
+        const resultGroups = [];
 
-          // 目標順位ごとに分ける
-          const goals = [...new Set(members.map(m => m.goal))];
-          const resultGroups = [];
+        for (const goal of goals) {
+          const sameGoal = members.filter(m => m.goal === goal);
+          const fixedMap = new Map();
+          const freeMembers = [];
 
-          for (const goal of goals) {
-            const sameGoal = members.filter(m => m.goal === goal);
-
-            // 固定チームごとにまとめる
-            const fixedMap = new Map();
-            const freeMembers = [];
-
-            for (const m of sameGoal) {
-              if (FIXED_NONE.includes(m.team)) {
-                freeMembers.push(m);
-              } else {
-                if (!fixedMap.has(m.team)) fixedMap.set(m.team, []);
-                fixedMap.get(m.team).push(m);
-              }
+          for (const m of sameGoal) {
+            if (FIXED_NONE.includes(m.team)) {
+              freeMembers.push(m);
+            } else {
+              if (!fixedMap.has(m.team)) fixedMap.set(m.team, []);
+              fixedMap.get(m.team).push(m);
             }
-
-            // チーム作成
-            const teams = [];
-            let current = makeTeam(goal);
-
-            // 固定チームを先に配置
-            for (const group of fixedMap.values()) {
-              if (current.members.length + group.length > TEAM_SIZE) {
-                teams.push(current);
-                current = makeTeam(goal);
-              }
-              for (const m of group) addMember(current, m);
-            }
-
-            // 残りのメンバーを職業バランスで配置
-            const roleMap = {};
-            for (const role of ROLES) {
-              roleMap[role] = freeMembers.filter(m => m.job === role);
-            }
-
-            while (Object.values(roleMap).some(arr => arr.length > 0)) {
-              if (current.members.length >= TEAM_SIZE) {
-                teams.push(current);
-                current = makeTeam(goal);
-              }
-
-              for (const role of ROLES) {
-                if (current.members.length >= TEAM_SIZE) break;
-                if (roleMap[role].length > 0 && !current.roles.has(role)) {
-                  addMember(current, roleMap[role].shift());
-                }
-              }
-
-              // バランス調整：空枠があれば強い順で埋める
-              if (current.members.length < TEAM_SIZE) {
-                const rest = freeMembers
-                  .filter(m => !current.members.includes(m))
-                  .sort((a, b) => b.power - a.power);
-                while (current.members.length < TEAM_SIZE && rest.length > 0) {
-                  addMember(current, rest.shift());
-                }
-              }
-            }
-
-            if (current.members.length > 0) teams.push(current);
-
-            resultGroups.push({ goal, teams });
           }
 
-          // 表示
-          const resultArea = document.getElementById("resultArea");
-          resultArea.innerHTML = "";
+          const teams = [];
+          let current = makeTeam(goal);
 
-          resultGroups.forEach(group => {
-            const goalTitle = document.createElement("h3");
-            goalTitle.textContent = `目標順位: ${group.goal}`;
-            resultArea.appendChild(goalTitle);
+          for (const group of fixedMap.values()) {
+            if (current.members.length + group.length > TEAM_SIZE) {
+              teams.push(current);
+              current = makeTeam(goal);
+            }
+            for (const m of group) addMember(current, m);
+          }
 
-            group.teams.forEach((team, i) => {
-              const div = document.createElement("div");
-              div.className = "team-card";
-              div.innerHTML = `
-                <div class="team-title">チーム ${i + 1}</div>
-                <ul>
-                  ${team.members.map(m => `
-                    <li class="member">
-                      ${m.name}（${m.job}）<br>
-                      戦力: ${m.power} ／ 目標順位: ${m.goal}
-                    </li>
-                  `).join("")}
-                </ul>
-              `;
-              resultArea.appendChild(div);
-            });
-          });
-        } catch (err) {
-          alert("スプレッドシートの取得に失敗しました。");
-          console.error(err);
+          const roleMap = {};
+          for (const role of ROLES) {
+            roleMap[role] = freeMembers.filter(m => m.job === role);
+          }
+
+          while (Object.values(roleMap).some(arr => arr.length > 0)) {
+            if (current.members.length >= TEAM_SIZE) {
+              teams.push(current);
+              current = makeTeam(goal);
+            }
+            for (const role of ROLES) {
+              if (current.members.length >= TEAM_SIZE) break;
+              if (roleMap[role].length > 0 && !current.roles.has(role)) {
+                addMember(current, roleMap[role].shift());
+              }
+            }
+          }
+
+          if (current.members.length > 0) teams.push(current);
+          resultGroups.push({ goal, teams });
         }
 
-        btn.disabled = false;
-        btn.innerText = "スプレッドシートから取得・振り分け";
-      });
+        const resultArea = document.getElementById("resultArea");
+        resultArea.innerHTML = "";
+        resultGroups.forEach(group => {
+          const goalTitle = document.createElement("h3");
+          goalTitle.textContent = `目標順位: ${group.goal}`;
+          resultArea.appendChild(goalTitle);
+
+          group.teams.forEach((team, i) => {
+            const div = document.createElement("div");
+            div.className = "team-card";
+            div.innerHTML = `
+              <div class="team-title">チーム ${i + 1}</div>
+              <ul>
+                ${team.members.map(m => `
+                  <li class="member">${m.name}（${m.job}）<br>
+                  戦力: ${m.power} ／ 目標順位: ${m.goal}</li>
+                `).join("")}
+              </ul>`;
+            resultArea.appendChild(div);
+          });
+        });
+      } catch (err) {
+        alert("スプレッドシートの取得に失敗しました。");
+        console.error(err);
+      }
+
+      btn.disabled = false;
+      btn.innerText = "スプレッドシートから取得・振り分け";
     });
+  });
   </script>
 </body>
 </html>
