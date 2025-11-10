@@ -89,24 +89,36 @@
 
     document.getElementById("fetchBtn").addEventListener("click", async () => {
       const btn = document.getElementById("fetchBtn");
+      const resultArea = document.getElementById("resultArea");
       btn.disabled = true;
       btn.innerText = "取得中...";
+      resultArea.innerHTML = "";
 
       try {
-        const res = await fetch(`${APPSCRIPT_URL}?t=${Date.now()}`);
+        // 常に最新データを取得（キャッシュ防止）
+        const res = await fetch(`${APPSCRIPT_URL}?t=${Date.now()}`, { cache: "no-store" });
         const data = await res.json();
 
-        // 整形
+        // データ整形
         const members = data
           .filter(d => d.name && d.job && d.goal)
           .map((d, i) => ({
-            id: i, // ← 一意のID付与
+            id: `${d.name}_${i}`, // 一意の識別子
             name: d.name.trim(),
             job: d.job.trim(),
             power: Number(d.power) || 0,
             goal: d.goal.trim(),
             team: (d.team || "").trim()
           }));
+
+        // 並べ替え（目標順位昇順 → 職業順 → 戦力降順）
+        members.sort((a, b) => {
+          const rankA = parseInt(a.goal.replace(/\D/g, "")) || 9999;
+          const rankB = parseInt(b.goal.replace(/\D/g, "")) || 9999;
+          if (rankA !== rankB) return rankA - rankB;
+          if (a.job !== b.job) return ROLES.indexOf(a.job) - ROLES.indexOf(b.job);
+          return b.power - a.power;
+        });
 
         const assignedIds = new Set();
         const goals = [...new Set(members.map(m => m.goal))];
@@ -129,69 +141,49 @@
 
           const teams = [];
 
-          // 固定チーム配置
+          // 固定チームを優先配置
           for (const group of fixedMap.values()) {
             const team = makeTeam(goal);
             group.forEach(m => {
-              addMember(team, m);
-              assignedIds.add(m.id);
+              if (!assignedIds.has(m.id)) {
+                addMember(team, m);
+                assignedIds.add(m.id);
+              }
             });
             teams.push(team);
           }
 
-          // 残りメンバーを職業別に分配
-          const roleMap = {};
-          for (const role of ROLES) {
-            roleMap[role] = freeMembers
-              .filter(m => m.job === role && !assignedIds.has(m.id))
-              .sort((a, b) => b.power - a.power);
-          }
-
+          // 残りメンバーを「職業バランス優先」で分配
           const available = freeMembers.filter(m => !assignedIds.has(m.id));
+          const rolePools = {};
+          ROLES.forEach(r => rolePools[r] = available.filter(m => m.job === r));
 
-          // チームを作成（4人単位、最後は余りもOK）
-          while (available.length > 0) {
+          while (Object.values(rolePools).some(arr => arr.length > 0)) {
             const team = makeTeam(goal);
             for (const role of ROLES) {
               if (team.members.length >= TEAM_SIZE) break;
-              const candidate = roleMap[role]?.shift();
-              if (candidate) {
+              const candidate = rolePools[role].shift();
+              if (candidate && !assignedIds.has(candidate.id)) {
                 addMember(team, candidate);
                 assignedIds.add(candidate.id);
               }
             }
-            // 役職が足りない場合、残りから補充
-            while (team.members.length < TEAM_SIZE && available.length > 0) {
-              const member = available.shift();
-              if (!assignedIds.has(member.id)) {
-                addMember(team, member);
-                assignedIds.add(member.id);
-              }
+            // 残った枠を戦力順で埋める
+            const remaining = available
+              .filter(m => !assignedIds.has(m.id))
+              .sort((a, b) => b.power - a.power);
+            while (team.members.length < TEAM_SIZE && remaining.length > 0) {
+              const next = remaining.shift();
+              addMember(team, next);
+              assignedIds.add(next.id);
             }
-            teams.push(team);
+            if (team.members.length > 0) teams.push(team);
           }
 
-          // 重複除外：同じidを持つ人を別チームに入れない
-          const uniqueTeams = teams.map(t => {
-            const seen = new Set();
-            t.members = t.members.filter(m => {
-              if (seen.has(m.id)) return false;
-              seen.add(m.id);
-              return true;
-            });
-            return t;
-          });
-
-          // 空チーム除去
-          const cleanTeams = uniqueTeams.filter(t => t.members.length > 0);
-
-          resultGroups.push({ goal, teams: cleanTeams });
+          resultGroups.push({ goal, teams });
         }
 
         // 結果表示
-        const resultArea = document.getElementById("resultArea");
-        resultArea.innerHTML = "";
-
         resultGroups.forEach(group => {
           const goalTitle = document.createElement("h3");
           goalTitle.textContent = `目標順位: ${group.goal}`;
@@ -207,11 +199,11 @@
                   <li class="member">${m.name}（${m.job}）<br>
                   戦力: ${m.power} ／ 目標順位: ${m.goal}</li>
                 `).join("")}
-              </ul>
-            `;
+              </ul>`;
             resultArea.appendChild(div);
           });
         });
+
       } catch (err) {
         alert("スプレッドシートの取得に失敗しました。");
         console.error(err);
