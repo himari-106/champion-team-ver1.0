@@ -75,10 +75,20 @@
 
   <script>
   document.addEventListener("DOMContentLoaded", () => {
-    const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbx3KOAU2W6USgkUlzyOQy6z7dRz_lzss4wwNdZ6lqSnYwb77QwQweY-w2_qQR9KgM10/exec";
+    // ✅ 新しいApps Script WebアプリURL
+    const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwGe7K_GtbJJLAeS1QHIEtrhamOqUHf_LvX8i7YFbIxqREgjzZnRBz4ezZ04KR-OrJ3/exec";
+
     const TEAM_SIZE = 4;
     const ROLES = ["破壊者", "掌握者", "征服者", "守護者"];
     const FIXED_NONE = ["", "なし", "-", "無所属", null, undefined];
+
+    // 並び順（1位→2位→…→フリー枠→空欄）
+    const goalOrder = goal => {
+      if (!goal || goal === "") return 999;
+      if (goal.includes("フリー")) return 900;
+      const num = parseInt(goal.replace(/\D/g, ""));
+      return isNaN(num) ? 999 : num;
+    };
 
     const makeTeam = (goal) => ({ members: [], power: 0, roles: new Set(), goal });
     const addMember = (team, member) => {
@@ -95,33 +105,29 @@
       resultArea.innerHTML = "";
 
       try {
-        // 常に最新データを取得（キャッシュ防止）
         const res = await fetch(`${APPSCRIPT_URL}?t=${Date.now()}`, { cache: "no-store" });
         const data = await res.json();
 
-        // データ整形
         const members = data
-          .filter(d => d.name && d.job && d.goal)
+          .filter(d => d.name && d.job)
           .map((d, i) => ({
-            id: `${d.name}_${i}`, // 一意の識別子
+            id: `${d.name}_${i}`,
             name: d.name.trim(),
             job: d.job.trim(),
             power: Number(d.power) || 0,
-            goal: d.goal.trim(),
+            goal: d.goal ? d.goal.trim() : "",
             team: (d.team || "").trim()
           }));
 
-        // 並べ替え（目標順位昇順 → 職業順 → 戦力降順）
+        // 並べ替え（目標順位 → 戦力）
         members.sort((a, b) => {
-          const rankA = parseInt(a.goal.replace(/\D/g, "")) || 9999;
-          const rankB = parseInt(b.goal.replace(/\D/g, "")) || 9999;
-          if (rankA !== rankB) return rankA - rankB;
-          if (a.job !== b.job) return ROLES.indexOf(a.job) - ROLES.indexOf(b.job);
+          const rankDiff = goalOrder(a.goal) - goalOrder(b.goal);
+          if (rankDiff !== 0) return rankDiff;
           return b.power - a.power;
         });
 
         const assignedIds = new Set();
-        const goals = [...new Set(members.map(m => m.goal))];
+        const goals = [...new Set(members.map(m => m.goal))].sort((a, b) => goalOrder(a) - goalOrder(b));
         const resultGroups = [];
 
         for (const goal of goals) {
@@ -129,7 +135,6 @@
           const fixedMap = new Map();
           const freeMembers = [];
 
-          // 固定チームと自由メンバー分け
           for (const m of sameGoal) {
             if (FIXED_NONE.includes(m.team)) {
               freeMembers.push(m);
@@ -141,7 +146,7 @@
 
           const teams = [];
 
-          // 固定チームを優先配置
+          // 固定チームを先に配置
           for (const group of fixedMap.values()) {
             const team = makeTeam(goal);
             group.forEach(m => {
@@ -153,7 +158,7 @@
             teams.push(team);
           }
 
-          // 残りメンバーを「職業バランス優先」で分配
+          // 残りを職業バランスで追加
           const available = freeMembers.filter(m => !assignedIds.has(m.id));
           const rolePools = {};
           ROLES.forEach(r => rolePools[r] = available.filter(m => m.job === r));
@@ -168,7 +173,7 @@
                 assignedIds.add(candidate.id);
               }
             }
-            // 残った枠を戦力順で埋める
+            // 残枠を戦力順で埋める
             const remaining = available
               .filter(m => !assignedIds.has(m.id))
               .sort((a, b) => b.power - a.power);
@@ -183,26 +188,28 @@
           resultGroups.push({ goal, teams });
         }
 
-        // 結果表示
-        resultGroups.forEach(group => {
-          const goalTitle = document.createElement("h3");
-          goalTitle.textContent = `目標順位: ${group.goal}`;
-          resultArea.appendChild(goalTitle);
+        // 結果表示（1位→2位→3位→フリー→空欄）
+        resultGroups
+          .sort((a, b) => goalOrder(a.goal) - goalOrder(b.goal))
+          .forEach(group => {
+            const goalTitle = document.createElement("h3");
+            goalTitle.textContent = `目標順位: ${group.goal || "（未選択）"}`;
+            resultArea.appendChild(goalTitle);
 
-          group.teams.forEach((team, i) => {
-            const div = document.createElement("div");
-            div.className = "team-card";
-            div.innerHTML = `
-              <div class="team-title">チーム ${i + 1}（${team.members.length}人）</div>
-              <ul>
-                ${team.members.map(m => `
-                  <li class="member">${m.name}（${m.job}）<br>
-                  戦力: ${m.power} ／ 目標順位: ${m.goal}</li>
-                `).join("")}
-              </ul>`;
-            resultArea.appendChild(div);
+            group.teams.forEach((team, i) => {
+              const div = document.createElement("div");
+              div.className = "team-card";
+              div.innerHTML = `
+                <div class="team-title">チーム ${i + 1}（${team.members.length}人）</div>
+                <ul>
+                  ${team.members.map(m => `
+                    <li class="member">${m.name}（${m.job}）<br>
+                    戦力: ${m.power} ／ 目標順位: ${m.goal || "未選択"}</li>
+                  `).join("")}
+                </ul>`;
+              resultArea.appendChild(div);
+            });
           });
-        });
 
       } catch (err) {
         alert("スプレッドシートの取得に失敗しました。");
