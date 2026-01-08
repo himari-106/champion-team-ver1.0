@@ -1,394 +1,197 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>チーム自動振り分けツール</title>
+<script>
+const APPSCRIPT_URL =
+  "https://script.google.com/macros/s/AKfycbxAHyD_jBQ667q8P-GRilkvdP8MDE-KwBJ2lk6jE1PYfcGC4R8FbQUbD1L7DbYc-5M/exec";
 
-  <style>
-    body {
-      font-family: "Segoe UI", system-ui, sans-serif;
-      background: #fffafc;
-      color: #444;
-      margin: 0;
-      padding: 0;
-    }
-    header {
-      background: linear-gradient(90deg, #ffb7c5, #ffe7a1, #b8e5c7);
-      padding: 20px;
-      text-align: center;
-      font-size: 1.6em;
-      font-weight: bold;
-      color: #333;
-      letter-spacing: 0.03em;
-    }
-    main {
-      max-width: 900px;
-      margin: 25px auto;
-      background: #ffffffc9;
-      padding: 20px;
-      border-radius: 15px;
-      box-shadow: 0 3px 8px rgba(0,0,0,0.1);
-    }
-    .center { text-align: center; }
+const TEAM_SIZE = 4;
+const ROLE_NEEDS = { "征服者": 1, "破壊者": 1, "守護者": 1, "掌握者": 1 };
 
-    button {
-      background: #ffb7c5;
-      border: none;
-      border-radius: 8px;
-      padding: 10px 25px;
-      color: white;
-      font-size: 1em;
-      cursor: pointer;
-      transition: 0.2s;
-    }
-    button:hover { background: #ff99ae; }
-    button:disabled { opacity: 0.6; cursor: not-allowed; }
+// ---------- JSONP（CORS回避） ----------
+function loadJsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cbName = "cb_" + Math.random().toString(36).slice(2);
+    const script = document.createElement("script");
 
-    .team-card {
-      background: #f8fff6;
-      border: 2px solid #b8e5c7;
-      border-radius: 10px;
-      padding: 10px 15px;
-      margin-bottom: 16px;
-    }
-    .team-title {
-      font-weight: bold;
-      color: #4a8b65;
-      margin-bottom: 5px;
-      font-size: 1.1em;
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("JSONP timeout"));
+    }, 15000);
+
+    function cleanup() {
+      clearTimeout(timer);
+      delete window[cbName];
+      script.remove();
     }
 
-    ul { margin: 0; padding-left: 20px; }
-    .member { margin: 2px 0; }
+    window[cbName] = (data) => {
+      cleanup();
+      resolve(data);
+    };
 
-    .note {
-      font-size: 0.9em;
-      color: #666;
-      text-align: center;
-      margin-top: 10px;
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("JSONP load error"));
+    };
+
+    const sep = url.includes("?") ? "&" : "?";
+    script.src = `${url}${sep}callback=${cbName}&_=${Date.now()}`;
+    document.body.appendChild(script);
+  });
+}
+
+function normalizeTarget(fixedGoal, goal) {
+  const f = String(fixedGoal ?? "").trim();
+  const g = String(goal ?? "").trim();
+  if (f === "お休み" || g === "お休み") return null;
+  if (f.startsWith("既") || g.startsWith("既")) return null;
+  if (f) return f;
+  if (!g) return "64位";
+  return g;
+}
+function isFree(fixedGoal, goal) {
+  const f = String(fixedGoal ?? "").trim();
+  const g = String(goal ?? "").trim();
+  return f === "フリー枠" || g === "フリー枠";
+}
+function teamState(team) {
+  const roleCount = {};
+  let total = 0;
+  for (const m of team) {
+    total += m.skill;
+    roleCount[m.role] = (roleCount[m.role] || 0) + 1;
+  }
+  let lack = 0;
+  for (const r in ROLE_NEEDS) lack += Math.max(0, ROLE_NEEDS[r] - (roleCount[r] || 0));
+  return { total, lack };
+}
+function fillByFree(teams, free) {
+  for (let i = 0; i < free.length; i++) {
+    const p = free[i];
+    let bestIdx = -1, bestScore = -Infinity;
+    for (let t = 0; t < teams.length; t++) {
+      if (teams[t].length >= TEAM_SIZE) continue;
+      const b = teamState(teams[t]);
+      const a = teamState(teams[t].concat([p]));
+      const score = (b.lack - a.lack) * 100 + (a.total - b.total);
+      if (score > bestScore) { bestScore = score; bestIdx = t; }
     }
+    if (bestIdx !== -1) { teams[bestIdx].push(p); free.splice(i,1); i--; }
+  }
+}
+function upgradeByFree(teams, free) {
+  const byRole = {};
+  for (const p of free) (byRole[p.role] ??= []).push(p);
+  for (const r in byRole) byRole[r].sort((a,b)=> b.skill - a.skill);
 
-    .warn {
-      background: #fff3cd;
-      border: 1px solid #ffeeba;
-      padding: 12px;
-      border-radius: 10px;
-      margin-top: 15px;
-      white-space: pre-wrap;
-      font-size: 0.95em;
-    }
+  for (const team of teams) {
+    for (const role in ROLE_NEEDS) {
+      const pool = byRole[role];
+      if (!pool?.length) continue;
 
-    .meta {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 10px;
-      justify-content: center;
-      font-size: 0.9em;
-      color: #555;
-    }
-    .badge {
-      background: #f1f1f1;
-      padding: 6px 10px;
-      border-radius: 999px;
-    }
-  </style>
-</head>
-<body>
-  <header>チーム自動振り分けツール</header>
+      const same = team.map((m,idx)=>({m,idx})).filter(x=>x.m.role===role);
+      if (!same.length) continue;
 
-  <main>
-    <div class="center">
-      <button id="fetchBtn">スプレッドシートから取得・振り分け</button>
-      <div class="meta">
-        <div class="badge">1チーム人数: <b id="teamSizeLabel">4</b></div>
-        <div class="badge">フリー枠: <b>不足補完 → 同職高戦力で置換</b></div>
-      </div>
-    </div>
-
-    <div id="resultArea" style="margin-top:25px;"></div>
-    <div class="note">※スプレッドシート更新が反映されるまで数秒かかる場合があります。</div>
-  </main>
-
-  <script>
-    /* ================= 設定 ================= */
-
-    // ✅ あなたが以前提示していた最新のGAS URL（違う場合はここだけ差し替え）
-    const APPSCRIPT_URL =
-      "https://script.google.com/macros/s/AKfycbxAHyD_jBQ667q8P-GRilkvdP8MDE-KwBJ2lk6jE1PYfcGC4R8FbQUbD1L7DbYc-5M/exec";
-
-    const TEAM_SIZE = 4; // 1チーム人数
-
-    // 4人チームで「最低1人ずつ欲しい職業」（必要なら変更OK）
-    const ROLE_NEEDS = { "征服者": 1, "破壊者": 1, "守護者": 1, "掌握者": 1 };
-
-    document.getElementById("teamSizeLabel").textContent = TEAM_SIZE;
-
-    /* ================= 安全系ユーティリティ ================= */
-
-    function normalizeTarget(fixedGoal, goal) {
-      const f = String(fixedGoal ?? "").trim();
-      const g = String(goal ?? "").trim();
-
-      // 除外
-      if (f === "お休み" || g === "お休み") return null;
-      if (f.startsWith("既") || g.startsWith("既")) return null;
-
-      // 固定目標優先
-      if (f) return f;
-
-      // 目標未入力は 64位
-      if (!g) return "64位";
-
-      return g;
-    }
-
-    function isFree(fixedGoal, goal) {
-      const f = String(fixedGoal ?? "").trim();
-      const g = String(goal ?? "").trim();
-      return f === "フリー枠" || g === "フリー枠";
-    }
-
-    function teamState(team) {
-      const roleCount = {};
-      let total = 0;
-
-      for (const m of team) {
-        total += m.skill;
-        roleCount[m.role] = (roleCount[m.role] || 0) + 1;
-      }
-
-      let lack = 0;
-      for (const r in ROLE_NEEDS) {
-        lack += Math.max(0, ROLE_NEEDS[r] - (roleCount[r] || 0));
-      }
-
-      return { total, lack, roleCount };
-    }
-
-    /* ================= フリー枠ロジック ================= */
-
-    // ① 不足補完：ロール不足改善を優先しつつ、戦力も加点して投入
-    function fillByFree(teams, free) {
-      for (let i = 0; i < free.length; i++) {
-        const p = free[i];
-
-        let bestIdx = -1;
-        let bestScore = -Infinity;
-
-        for (let t = 0; t < teams.length; t++) {
-          const team = teams[t];
-          if (team.length >= TEAM_SIZE) continue;
-
-          const before = teamState(team);
-          const after = teamState(team.concat([p]));
-
-          // ロール不足を100倍で強く評価し、戦力も少し評価
-          const score = (before.lack - after.lack) * 100 + (after.total - before.total);
-
-          if (score > bestScore) {
-            bestScore = score;
-            bestIdx = t;
-          }
-        }
-
-        if (bestIdx !== -1) {
-          teams[bestIdx].push(p);
-          free.splice(i, 1);
-          i--;
-        }
+      same.sort((a,b)=> a.m.skill - b.m.skill);
+      if (pool[0].skill > same[0].m.skill) {
+        team[same[0].idx] = pool.shift();
       }
     }
+  }
+  return Object.values(byRole).flat();
+}
+function buildTeams(players) {
+  const byTarget = new Map();
+  let free = [];
 
-    // ② 置換強化：同職の最弱メンバーを、同職のフリー枠最強に置換
-    function upgradeByFree(teams, free) {
-      const byRole = {};
-      for (const p of free) (byRole[p.role] ??= []).push(p);
-      for (const r in byRole) byRole[r].sort((a, b) => b.skill - a.skill);
+  for (const p of players) {
+    if (p.free) free.push(p);
+    else {
+      if (!byTarget.has(p.target)) byTarget.set(p.target, []);
+      byTarget.get(p.target).push(p);
+    }
+  }
 
-      for (const team of teams) {
-        for (const role in ROLE_NEEDS) {
-          const pool = byRole[role];
-          if (!pool || pool.length === 0) continue;
+  const result = new Map();
+  for (const [target, members] of byTarget.entries()) {
+    members.sort((a,b)=> b.skill - a.skill);
 
-          const same = team.map((m, idx) => ({ m, idx })).filter(x => x.m.role === role);
-          if (same.length === 0) continue;
+    const teamCount = Math.max(1, Math.ceil(members.length / TEAM_SIZE));
+    const teams = Array.from({length: teamCount}, ()=>[]);
 
-          same.sort((a, b) => a.m.skill - b.m.skill); // 弱い順
-          const weakest = same[0];
-          const strongestFree = pool[0];
+    members.forEach((m,i)=> teams[i % teamCount].push(m));
 
-          if (strongestFree.skill > weakest.m.skill) {
-            team[weakest.idx] = strongestFree;
-            pool.shift();
-          }
-        }
-      }
+    fillByFree(teams, free);
+    free = upgradeByFree(teams, free);
 
-      return Object.values(byRole).flat();
+    result.set(target, teams);
+  }
+  return { result, remainingFree: free };
+}
+
+document.getElementById("fetchBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("fetchBtn");
+  const area = document.getElementById("resultArea");
+  btn.disabled = true;
+  btn.textContent = "取得中...";
+  area.innerHTML = "";
+
+  try {
+    const data = await loadJsonp(APPSCRIPT_URL);
+
+    if (data && data.ok === false) {
+      area.innerHTML = `<div class="warn"><b>GASエラー</b><br>${data.error}</div>`;
+      return;
+    }
+    if (!Array.isArray(data) || data.length === 0) {
+      area.innerHTML = `<div class="warn"><b>データが0件です</b><br>ヘッダー行/データ開始行/列名を確認してください。</div>`;
+      return;
     }
 
-    /* ================= チーム作成 ================= */
+    const players = data.map(r => {
+      const name = String(r.name ?? "").trim();
+      const role = String(r.job ?? "").trim();
+      const skill = Number(r.power) || 0;
+      const fixedGoal = String(r.fixedGoal ?? "").trim();
+      const goal = String(r.goal ?? "").trim();
+      return { name, role, skill, target: normalizeTarget(fixedGoal, goal), free: isFree(fixedGoal, goal) };
+    }).filter(p => p.name && p.role && Number.isFinite(p.skill) && p.target !== null);
 
-    function buildTeams(players) {
-      const byTarget = new Map();
-      let free = [];
-
-      for (const p of players) {
-        if (p.free) free.push(p);
-        else {
-          if (!byTarget.has(p.target)) byTarget.set(p.target, []);
-          byTarget.get(p.target).push(p);
-        }
-      }
-
-      const result = new Map();
-
-      for (const [target, members] of byTarget.entries()) {
-        // 戦力高い順
-        members.sort((a, b) => b.skill - a.skill);
-
-        const teamCount = Math.max(1, Math.ceil(members.length / TEAM_SIZE));
-        const teams = Array.from({ length: teamCount }, () => []);
-
-        // まず均等分散
-        members.forEach((m, i) => teams[i % teamCount].push(m));
-
-        // フリー枠で不足補完 → 同職置換
-        fillByFree(teams, free);
-        free = upgradeByFree(teams, free);
-
-        result.set(target, teams);
-      }
-
-      return { result, remainingFree: free };
+    if (players.length === 0) {
+      area.innerHTML = `<div class="warn"><b>表示対象が0人です</b><br>name/job/目標が空になっていないか確認してください。</div>`;
+      return;
     }
 
-    /* ================= 表示 ================= */
+    const { result, remainingFree } = buildTeams(players);
 
-    function renderTeams(container, grouped, remainingFree) {
-      container.innerHTML = "";
+    for (const [target, teams] of result.entries()) {
+      const h = document.createElement("div");
+      h.style.margin = "20px 0 10px";
+      h.style.fontWeight = "bold";
+      h.textContent = `目標：${target}`;
+      area.appendChild(h);
 
-      for (const [target, teams] of grouped.entries()) {
-        const h = document.createElement("div");
-        h.style.margin = "22px 0 10px";
-        h.style.fontWeight = "bold";
-        h.textContent = `目標：${target}`;
-        container.appendChild(h);
-
-        teams.forEach((team, i) => {
-          const div = document.createElement("div");
-          div.className = "team-card";
-          div.innerHTML = `
-            <div class="team-title">チーム ${i + 1}</div>
-            <ul>
-              ${team.map(m => `<li class="member">${m.name}（${m.role} / ${m.skill}）</li>`).join("")}
-            </ul>
-          `;
-          container.appendChild(div);
-        });
-      }
-
-      if (remainingFree.length > 0) {
-        const w = document.createElement("div");
-        w.className = "warn";
-        w.textContent =
-          "未使用のフリー枠\n\n" +
-          remainingFree.map(m => `${m.name}（${m.role} / ${m.skill}）`).join("\n");
-        container.appendChild(w);
-      }
+      teams.forEach((team,i)=>{
+        const div = document.createElement("div");
+        div.className = "team-card";
+        div.innerHTML = `
+          <div class="team-title">チーム ${i+1}</div>
+          <ul>${team.map(m => `<li class="member">${m.name}（${m.role} / ${m.skill}）</li>`).join("")}</ul>
+        `;
+        area.appendChild(div);
+      });
     }
 
-    /* ================= 実行（白画面防止） ================= */
+    if (remainingFree.length) {
+      const w = document.createElement("div");
+      w.className = "warn";
+      w.innerHTML = `<b>未使用のフリー枠</b><br>${remainingFree.map(m => `${m.name}（${m.role} / ${m.skill}）`).join("<br>")}`;
+      area.appendChild(w);
+    }
 
-    const btn = document.getElementById("fetchBtn");
-    const area = document.getElementById("resultArea");
-
-    btn.addEventListener("click", async () => {
-      btn.disabled = true;
-      btn.textContent = "取得中...";
-      area.innerHTML = "";
-
-      try {
-        const res = await fetch(APPSCRIPT_URL, { cache: "no-store" });
-        const text = await res.text();
-
-        // JSONじゃない場合も画面に表示して止める（白画面にしない）
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch {
-          const warn = document.createElement("div");
-          warn.className = "warn";
-          warn.textContent =
-            "GASの返答がJSONではありません。\n\n" +
-            "（GASの公開設定が「全員(匿名含む)」になっていない、または doGet が落ちてHTMLが返っている可能性）\n\n" +
-            text.slice(0, 1500);
-          area.appendChild(warn);
-          return;
-        }
-
-        // GASが {ok:false,error:"..."} を返す場合の表示
-        if (data && data.ok === false) {
-          const warn = document.createElement("div");
-          warn.className = "warn";
-          warn.textContent = "GASエラー\n\n" + String(data.error || "");
-          area.appendChild(warn);
-          return;
-        }
-
-        if (!Array.isArray(data) || data.length === 0) {
-          const warn = document.createElement("div");
-          warn.className = "warn";
-          warn.textContent = "データが0件です。\n\nシートのヘッダー行/データ開始行、列名（名前/職業/戦力/固定目標/目標順位）が一致しているか確認してください。";
-          area.appendChild(warn);
-          return;
-        }
-
-        // GASが返す想定： {name, job, power, fixedGoal, goal, other}
-        const players = data.map(r => {
-          const name = String(r.name ?? "").trim();
-          const role = String(r.job ?? "").trim();
-          const skill = Number(r.power) || 0;
-
-          const fixedGoal = String(r.fixedGoal ?? "").trim();
-          const goal = String(r.goal ?? "").trim();
-
-          return {
-            name,
-            role,
-            skill,
-            target: normalizeTarget(fixedGoal, goal),
-            free: isFree(fixedGoal, goal)
-          };
-        }).filter(p => p.name && p.role && Number.isFinite(p.skill) && p.target !== null);
-
-        if (players.length === 0) {
-          const warn = document.createElement("div");
-          warn.className = "warn";
-          warn.textContent =
-            "表示対象が0人です。\n\n" +
-            "原因例：\n" +
-            "- name/job が空（ヘッダー不一致）\n" +
-            "- 固定目標/目標順位が「お休み」「既〜」扱いで除外\n";
-          area.appendChild(warn);
-          return;
-        }
-
-        const { result, remainingFree } = buildTeams(players);
-        renderTeams(area, result, remainingFree);
-
-      } catch (e) {
-        const warn = document.createElement("div");
-        warn.className = "warn";
-        warn.textContent = "通信エラー\n\n" + String(e);
-        area.appendChild(warn);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "スプレッドシートから取得・振り分け";
-      }
-    });
-  </script>
-</body>
-</html>
+  } catch (e) {
+    area.innerHTML = `<div class="warn"><b>通信エラー</b><br>${String(e)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "スプレッドシートから取得・振り分け";
+  }
+});
+</script>
