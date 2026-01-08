@@ -1,208 +1,299 @@
-<script>
-/* ================= 設定 ================= */
-const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzkJVZy-T89Ve5FqC4wJ7MyW2mXbaVoKHW7ftT2LEdckI_ecLYyoYUVnSsRIEUaQgeK/exec";
-const SHEET_ID = "1Q5mAiciojHktw4SYMcYTGgeRRWTgg-NDpigQOKVabFQ";
-const TEAM_SIZE = 4;
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>チーム自動振り分けツール</title>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #fffafc;
+      color: #444;
+      margin: 0;
+      padding: 0;
+    }
 
-// 4人チームで揃えたい職業
-const ROLE_NEEDS = {
-  "征服者": 1,
-  "破壊者": 1,
-  "守護者": 1,
-  "掌握者": 1
-};
+    header {
+      background: linear-gradient(90deg, #ffb7c5, #ffe7a1, #b8e5c7);
+      padding: 20px;
+      text-align: center;
+      font-size: 1.6em;
+      font-weight: bold;
+      color: #333;
+      letter-spacing: 0.05em;
+    }
 
-/* ================= 共通関数 ================= */
-function normalizeTarget(fixed, target) {
-  const f = (fixed || "").trim();
-  const t = (target || "").trim();
+    main {
+      max-width: 900px;
+      margin: 25px auto;
+      background: #ffffffc9;
+      padding: 20px;
+      border-radius: 15px;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+    }
 
-  if (f === "お休み" || t === "お休み") return null;
-  if (f.startsWith("既") || t.startsWith("既")) return null;
+    .center {
+      text-align: center;
+    }
 
-  if (f) return f;
-  if (!t) return "64位";
-  return t;
-}
+    button {
+      background: #ffb7c5;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 25px;
+      color: white;
+      font-size: 1em;
+      cursor: pointer;
+      transition: 0.2s;
+    }
 
-function isFree(fixed, target) {
-  return (fixed || "").trim() === "フリー枠"
-      || (target || "").trim() === "フリー枠";
-}
+    button:hover {
+      background: #ff99ae;
+    }
 
-function teamState(team) {
-  const roleCount = {};
-  let total = 0;
+    .team-card {
+      background: #f8fff6;
+      border: 2px solid #b8e5c7;
+      border-radius: 10px;
+      padding: 10px 15px;
+      margin-bottom: 20px;
+    }
 
-  team.forEach(m => {
-    total += m.skill;
-    roleCount[m.role] = (roleCount[m.role] || 0) + 1;
-  });
+    .team-title {
+      font-weight: bold;
+      color: #4a8b65;
+      margin-bottom: 5px;
+      font-size: 1.1em;
+    }
 
-  let lackSum = 0;
-  for (const r in ROLE_NEEDS) {
-    lackSum += Math.max(0, ROLE_NEEDS[r] - (roleCount[r] || 0));
-  }
+    ul {
+      margin: 0;
+      padding-left: 20px;
+    }
 
-  return { total, lackSum };
-}
+    .member {
+      margin: 2px 0;
+    }
 
-/* ===== フリー枠で「置換強化」 ===== */
-function upgradeTeamsByFree(teams, free) {
-  const freeByRole = {};
+    .note {
+      font-size: 0.9em;
+      color: #666;
+      text-align: center;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <header>チーム自動振り分けツール</header>
 
-  free.forEach(p => {
-    if (!freeByRole[p.role]) freeByRole[p.role] = [];
-    freeByRole[p.role].push(p);
-  });
+  <main>
+    <div class="center">
+      <button id="fetchBtn">スプレッドシートから取得・振り分け</button>
+    </div>
 
-  for (const r in freeByRole) {
-    freeByRole[r].sort((a,b)=> b.skill - a.skill);
-  }
+    <div id="resultArea" style="margin-top:25px;"></div>
 
-  for (const team of teams) {
-    for (const role in ROLE_NEEDS) {
-      const sameRole = team
-        .map((m,i)=>({m,i}))
-        .filter(x=> x.m.role === role);
+    <div class="note">※スプレッドシートの更新内容が反映されるまで数秒かかる場合があります。</div>
+  </main>
 
-      if (sameRole.length === 0) continue;
-      if (!freeByRole[role] || freeByRole[role].length === 0) continue;
+  <script>
+    /* ================= 設定 ================= */
+    const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzkJVZy-T89Ve5FqC4wJ7MyW2mXbaVoKHW7ftT2LEdckI_ecLYyoYUVnSsRIEUaQgeK/exec";
+    const SHEET_ID = "1Q5mAiciojHktw4SYMcYTGgeRRWTgg-NDpigQOKVabFQ";
+    const TEAM_SIZE = 4;
 
-      sameRole.sort((a,b)=> a.m.skill - b.m.skill);
-      const weakest = sameRole[0];
-      const strongestFree = freeByRole[role][0];
+    // 4人チームで揃えたい職業
+    const ROLE_NEEDS = { "征服者": 1, "破壊者": 1, "守護者": 1, "掌握者": 1 };
 
-      if (strongestFree.skill > weakest.m.skill) {
-        team[weakest.i] = strongestFree;
-        freeByRole[role].shift();
+    /* ================= 共通関数 ================= */
+    function normalizeTarget(fixed, target) {
+      const f = (fixed || "").trim();
+      const t = (target || "").trim();
+
+      if (f === "お休み" || t === "お休み") return null;
+      if (f.startsWith("既") || t.startsWith("既")) return null;
+
+      if (f) return f;
+      if (!t) return "64位";
+      return t;
+    }
+
+    function isFree(fixed, target) {
+      return (fixed || "").trim() === "フリー枠"
+          || (target || "").trim() === "フリー枠";
+    }
+
+    function teamState(team) {
+      const roleCount = {};
+      let total = 0;
+
+      team.forEach(m => {
+        total += m.skill;
+        roleCount[m.role] = (roleCount[m.role] || 0) + 1;
+      });
+
+      let lackSum = 0;
+      for (const r in ROLE_NEEDS) {
+        lackSum += Math.max(0, ROLE_NEEDS[r] - (roleCount[r] || 0));
+      }
+      return { total, lackSum };
+    }
+
+    /* ===== フリー枠で「置換強化」 ===== */
+    function upgradeTeamsByFree(teams, free) {
+      const freeByRole = {};
+      free.forEach(p => {
+        if (!freeByRole[p.role]) freeByRole[p.role] = [];
+        freeByRole[p.role].push(p);
+      });
+
+      for (const r in freeByRole) {
+        freeByRole[r].sort((a,b)=> b.skill - a.skill);
+      }
+
+      for (const team of teams) {
+        for (const role in ROLE_NEEDS) {
+          const sameRole = team.map((m,i)=>({m,i})).filter(x=> x.m.role === role);
+          if (sameRole.length === 0) continue;
+          if (!freeByRole[role] || freeByRole[role].length === 0) continue;
+
+          sameRole.sort((a,b)=> a.m.skill - b.m.skill);
+          const weakest = sameRole[0];
+          const strongestFree = freeByRole[role][0];
+
+          if (strongestFree.skill > weakest.m.skill) {
+            team[weakest.i] = strongestFree;
+            freeByRole[role].shift();
+          }
+        }
       }
     }
-  }
-}
 
-/* ===== チーム作成本体 ===== */
-function buildTeams(players) {
-  const byTarget = new Map();
-  const free = [];
+    /* ===== チーム作成本体 ===== */
+    function buildTeams(players) {
+      const byTarget = new Map();
+      const free = [];
 
-  players.forEach(p => {
-    if (p.free) {
-      free.push(p);
-    } else {
-      if (!byTarget.has(p.finalTarget)) byTarget.set(p.finalTarget, []);
-      byTarget.get(p.finalTarget).push(p);
-    }
-  });
-
-  const result = new Map();
-
-  for (const [target, members] of byTarget.entries()) {
-    members.sort((a,b)=> b.skill - a.skill);
-
-    const teamCount = Math.ceil(members.length / TEAM_SIZE);
-    const teams = Array.from({length: teamCount}, ()=>[]);
-
-    // ① 通常メンバーを均等配分
-    members.forEach((m,i)=>{
-      teams[i % teamCount].push(m);
-    });
-
-    // ② フリー枠で不足補完
-    for (let i=0; i<free.length; i++) {
-      const p = free[i];
-      let bestIdx = -1;
-      let bestScore = -Infinity;
-
-      teams.forEach((t,idx)=>{
-        if (t.length >= TEAM_SIZE) return;
-
-        const before = teamState(t);
-        const after = teamState(t.concat([p]));
-
-        const score =
-          (before.lackSum - after.lackSum) * 100 +
-          (after.total - before.total);
-
-        if (score > bestScore) {
-          bestScore = score;
-          bestIdx = idx;
+      players.forEach(p => {
+        if (p.free) {
+          free.push(p);
+        } else {
+          if (!byTarget.has(p.finalTarget)) byTarget.set(p.finalTarget, []);
+          byTarget.get(p.finalTarget).push(p);
         }
       });
 
-      if (bestIdx !== -1) {
-        teams[bestIdx].push(p);
-        free.splice(i,1);
-        i--;
+      const result = new Map();
+
+      for (const [target, members] of byTarget.entries()) {
+        members.sort((a,b)=> b.skill - a.skill);
+
+        const teamCount = Math.ceil(members.length / TEAM_SIZE);
+        const teams = Array.from({length: teamCount}, ()=>[]);
+
+        // ① 通常メンバーを均等配分
+        members.forEach((m,i)=>{
+          teams[i % teamCount].push(m);
+        });
+
+        // ② フリー枠で不足補完
+        for (let i=0; i<free.length; i++) {
+          const p = free[i];
+          let bestIdx = -1;
+          let bestScore = -Infinity;
+
+          teams.forEach((t,idx)=>{
+            if (t.length >= TEAM_SIZE) return;
+
+            const before = teamState(t);
+            const after = teamState(t.concat([p]));
+
+            const score =
+              (before.lackSum - after.lackSum) * 100 +
+              (after.total - before.total);
+
+            if (score > bestScore) {
+              bestScore = score;
+              bestIdx = idx;
+            }
+          });
+
+          if (bestIdx !== -1) {
+            teams[bestIdx].push(p);
+            free.splice(i,1);
+            i--;
+          }
+        }
+
+        // ③ フリー枠で「同職・高戦力による置換強化」
+        upgradeTeamsByFree(teams, free);
+
+        result.set(target, teams);
       }
+
+      return result;
     }
 
-    // ③ フリー枠で「同職・高戦力による置換強化」
-    upgradeTeamsByFree(teams, free);
+    /* ================= 実行 ================= */
+    document.getElementById("fetchBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("fetchBtn");
+      btn.disabled = true;
+      btn.innerText = "取得中...";
 
-    result.set(target, teams);
-  }
+      try {
+        const res = await fetch(`${APPSCRIPT_URL}?sheetId=${SHEET_ID}`);
+        const data = await res.json();
 
-  return result;
-}
+        // シート列名：名前 / 職業 / 戦力 / 固定目標 / 目標順位 を想定
+        const players = data.map(row => {
+          const fixed = row["固定目標"];
+          const target = row["目標順位"];
 
-/* ================= 実行 ================= */
-document.getElementById("fetchBtn").addEventListener("click", async () => {
-  const btn = document.getElementById("fetchBtn");
-  btn.disabled = true;
-  btn.innerText = "取得中...";
+          return {
+            name: (row["名前"] || "").trim(),
+            role: (row["職業"] || "").trim(),
+            skill: Number(row["戦力"]),
+            finalTarget: normalizeTarget(fixed, target),
+            free: isFree(fixed, target)
+          };
+        }).filter(p =>
+          p.name && p.role && Number.isFinite(p.skill) && p.finalTarget !== null
+        );
 
-  try {
-    const res = await fetch(`${APPSCRIPT_URL}?sheetId=${SHEET_ID}`);
-    const data = await res.json();
+        const grouped = buildTeams(players);
 
-    const players = data.map(row => {
-      const fixed = row["固定目標"];
-      const target = row["目標順位"];
+        const resultArea = document.getElementById("resultArea");
+        resultArea.innerHTML = "";
 
-      return {
-        name: (row["名前"] || "").trim(),
-        role: (row["職業"] || "").trim(),
-        skill: Number(row["戦力"]),
-        finalTarget: normalizeTarget(fixed, target),
-        free: isFree(fixed, target)
-      };
-    }).filter(p =>
-      p.name && p.role && Number.isFinite(p.skill) && p.finalTarget !== null
-    );
+        for (const [target, teams] of grouped.entries()) {
+          const h = document.createElement("div");
+          h.style.margin = "20px 0 10px";
+          h.style.fontWeight = "bold";
+          h.textContent = `目標：${target}`;
+          resultArea.appendChild(h);
 
-    const grouped = buildTeams(players);
+          teams.forEach((team,i)=>{
+            const div = document.createElement("div");
+            div.className = "team-card";
+            div.innerHTML = `
+              <div class="team-title">チーム ${i+1}</div>
+              <ul>
+                ${team.map(m =>
+                  `<li class="member">${m.name}（${m.role} / ${m.skill}）</li>`
+                ).join("")}
+              </ul>
+            `;
+            resultArea.appendChild(div);
+          });
+        }
+      } catch (e) {
+        alert("スプレッドシートの取得に失敗しました");
+        console.error(e);
+      }
 
-    const resultArea = document.getElementById("resultArea");
-    resultArea.innerHTML = "";
-
-    for (const [target, teams] of grouped.entries()) {
-      const h = document.createElement("div");
-      h.style.margin = "20px 0 10px";
-      h.style.fontWeight = "bold";
-      h.textContent = `目標：${target}`;
-      resultArea.appendChild(h);
-
-      teams.forEach((team,i)=>{
-        const div = document.createElement("div");
-        div.className = "team-card";
-        div.innerHTML = `
-          <div class="team-title">チーム ${i+1}</div>
-          <ul>
-            ${team.map(m =>
-              `<li class="member">${m.name}（${m.role} / ${m.skill}）</li>`
-            ).join("")}
-          </ul>
-        `;
-        resultArea.appendChild(div);
-      });
-    }
-  } catch (e) {
-    alert("スプレッドシートの取得に失敗しました");
-    console.error(e);
-  }
-
-  btn.disabled = false;
-  btn.innerText = "スプレッドシートから取得・振り分け";
-});
-</script>
+      btn.disabled = false;
+      btn.innerText = "スプレッドシートから取得・振り分け";
+    });
+  </script>
+</body>
+</html>
