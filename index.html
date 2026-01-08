@@ -1,5 +1,5 @@
 <script>
-const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbxawhtMXRobc_xBhhnrvuPpMG-420Dppns01JoG3aeZjOWKde7PEpIMwrSq_KAjcymJ/exec";
+const APPSCRIPT_URL = "あなたの最新GASのexec URL";
 const TEAM_SIZE = 4;
 const ROLE_NEEDS = { "征服者": 1, "破壊者": 1, "守護者": 1, "掌握者": 1 };
 
@@ -25,31 +25,25 @@ function teamState(team) {
     roleCount[m.role] = (roleCount[m.role] || 0) + 1;
   });
   let lackSum = 0;
-  for (const r in ROLE_NEEDS) {
-    lackSum += Math.max(0, ROLE_NEEDS[r] - (roleCount[r] || 0));
-  }
+  for (const r in ROLE_NEEDS) lackSum += Math.max(0, ROLE_NEEDS[r] - (roleCount[r] || 0));
   return { total, lackSum };
 }
 function upgradeTeamsByFree(teams, free) {
   const freeByRole = {};
-  free.forEach(p => {
-    if (!freeByRole[p.role]) freeByRole[p.role] = [];
-    freeByRole[p.role].push(p);
-  });
+  free.forEach(p => (freeByRole[p.role] ??= []).push(p));
   for (const r in freeByRole) freeByRole[r].sort((a,b)=> b.skill - a.skill);
 
   for (const team of teams) {
     for (const role in ROLE_NEEDS) {
       const pool = freeByRole[role];
-      if (!pool || pool.length === 0) continue;
+      if (!pool?.length) continue;
 
       const sameRole = team.map((m,i)=>({m,i})).filter(x => x.m.role === role);
-      if (sameRole.length === 0) continue;
+      if (!sameRole.length) continue;
 
       sameRole.sort((a,b)=> a.m.skill - b.m.skill);
       const weakest = sameRole[0];
       const strongestFree = pool[0];
-
       if (strongestFree.skill > weakest.m.skill) {
         team[weakest.i] = strongestFree;
         pool.shift();
@@ -61,61 +55,36 @@ function upgradeTeamsByFree(teams, free) {
   for (const r in freeByRole) remaining.push(...freeByRole[r]);
   return remaining;
 }
-
 function buildTeams(players) {
   const byTarget = new Map();
   let free = [];
-
-  players.forEach(p => {
-    if (p.free) free.push(p);
-    else {
-      if (!byTarget.has(p.finalTarget)) byTarget.set(p.finalTarget, []);
-      byTarget.get(p.finalTarget).push(p);
-    }
-  });
+  players.forEach(p => p.free ? free.push(p) : (byTarget.get(p.finalTarget) ?? byTarget.set(p.finalTarget, []).get(p.finalTarget)).push(p));
 
   const result = new Map();
-
   for (const [target, members] of byTarget.entries()) {
     members.sort((a,b)=> b.skill - a.skill);
-
     const teamCount = Math.max(1, Math.ceil(members.length / TEAM_SIZE));
     const teams = Array.from({length: teamCount}, ()=>[]);
-
     members.forEach((m,i)=> teams[i % teamCount].push(m));
 
     // free補完
     for (let i=0; i<free.length; i++) {
       const p = free[i];
-      let bestIdx = -1;
-      let bestScore = -Infinity;
-
+      let bestIdx = -1, bestScore = -Infinity;
       teams.forEach((t,idx)=>{
         if (t.length >= TEAM_SIZE) return;
-
         const before = teamState(t);
         const after = teamState(t.concat([p]));
         const score = (before.lackSum - after.lackSum) * 100 + (after.total - before.total);
-
-        if (score > bestScore) {
-          bestScore = score;
-          bestIdx = idx;
-        }
+        if (score > bestScore) { bestScore = score; bestIdx = idx; }
       });
-
-      if (bestIdx !== -1) {
-        teams[bestIdx].push(p);
-        free.splice(i,1);
-        i--;
-      }
+      if (bestIdx !== -1) { teams[bestIdx].push(p); free.splice(i,1); i--; }
     }
 
     // 置換強化
     free = upgradeTeamsByFree(teams, free);
-
     result.set(target, teams);
   }
-
   return { grouped: result, remainingFree: free };
 }
 
@@ -128,26 +97,24 @@ document.getElementById("fetchBtn").addEventListener("click", async () => {
 
   try {
     const res = await fetch(APPSCRIPT_URL, { cache: "no-store" });
-    const text = await res.text(); // まずテキストで受け取る（JSONじゃない時も見える）
+    const text = await res.text();
+
     let data;
     try {
       data = JSON.parse(text);
     } catch {
-      resultArea.innerHTML = `<div class="warn"><b>GASの返答がJSONではありません</b><br><pre style="white-space:pre-wrap;">${text.slice(0, 1500)}</pre></div>`;
-      throw new Error("Response is not JSON");
+      resultArea.innerHTML = `<div class="warn"><b>GASがJSON以外を返しました</b><br><pre style="white-space:pre-wrap;">${text.slice(0, 1500)}</pre></div>`;
+      return;
     }
 
-    // ★デバッグ：取得件数と先頭を表示
-    resultArea.innerHTML = `
-      <div class="warn">
-        <b>デバッグ</b><br>
-        取得件数: ${Array.isArray(data) ? data.length : "配列ではない"}<br>
-        先頭データ: <pre style="white-space:pre-wrap;">${JSON.stringify(Array.isArray(data)? data.slice(0,3): data, null, 2)}</pre>
-      </div>
-    `;
+    // GASがエラーJSONを返した場合
+    if (data && data.ok === false) {
+      resultArea.innerHTML = `<div class="warn"><b>GASエラー</b><br><pre style="white-space:pre-wrap;">${data.error}</pre></div>`;
+      return;
+    }
 
     if (!Array.isArray(data) || data.length === 0) {
-      resultArea.innerHTML += `<div class="warn"><b>データが0件です</b><br>GASのヘッダー行(11行目)とデータ開始(12行目)がズレていないか、読み取ってるシートが正しいか確認してください。</div>`;
+      resultArea.innerHTML = `<div class="warn"><b>データが0件です</b><br>ヘッダー行/データ開始行/列名を確認してください。</div>`;
       return;
     }
 
@@ -157,30 +124,16 @@ document.getElementById("fetchBtn").addEventListener("click", async () => {
       const skill = Number(r.power) || 0;
       const fixedGoal = String(r.fixedGoal || "").trim();
       const goal = String(r.goal || "").trim();
+      return { name, role, skill, finalTarget: normalizeTarget(fixedGoal, goal), free: isFree(fixedGoal, goal) };
+    }).filter(p => p.name && p.role && Number.isFinite(p.skill) && p.finalTarget !== null);
 
-      return {
-        name,
-        role,
-        skill,
-        finalTarget: normalizeTarget(fixedGoal, goal),
-        free: isFree(fixedGoal, goal),
-      };
-    });
-
-    // ★デバッグ：フィルタ前の統計
-    const bad = players.filter(p => !p.name || !p.role || !Number.isFinite(p.skill) || p.finalTarget === null);
-    resultArea.innerHTML += `<div class="warn"><b>デバッグ</b><br>フィルタで落ちる人数: ${bad.length}</div>`;
-
-    const valid = players.filter(p => p.name && p.role && Number.isFinite(p.skill) && p.finalTarget !== null);
-
-    if (valid.length === 0) {
-      resultArea.innerHTML += `<div class="warn"><b>表示対象が0人です</b><br>name/job/fixedGoal/goal が空になっていないか（ヘッダー一致）を確認してください。</div>`;
+    if (players.length === 0) {
+      resultArea.innerHTML = `<div class="warn"><b>表示できる人が0人です</b><br>列値（名前/職業/目標）が空になっていないか確認してください。</div>`;
       return;
     }
 
-    const { grouped, remainingFree } = buildTeams(valid);
+    const { grouped, remainingFree } = buildTeams(players);
 
-    // 表示（デバッグの下に追加）
     for (const [target, teams] of grouped.entries()) {
       const h = document.createElement("div");
       h.style.margin = "20px 0 10px";
@@ -193,15 +146,13 @@ document.getElementById("fetchBtn").addEventListener("click", async () => {
         div.className = "team-card";
         div.innerHTML = `
           <div class="team-title">チーム ${i+1}</div>
-          <ul>
-            ${team.map(m => `<li class="member">${m.name}（${m.role} / ${m.skill}）</li>`).join("")}
-          </ul>
+          <ul>${team.map(m => `<li class="member">${m.name}（${m.role} / ${m.skill}）</li>`).join("")}</ul>
         `;
         resultArea.appendChild(div);
       });
     }
 
-    if (remainingFree.length > 0) {
+    if (remainingFree.length) {
       const warn = document.createElement("div");
       warn.className = "warn";
       warn.innerHTML = `<b>未使用のフリー枠：</b><br>${remainingFree.map(m => `${m.name}（${m.role} / ${m.skill}）`).join("<br>")}`;
@@ -209,7 +160,7 @@ document.getElementById("fetchBtn").addEventListener("click", async () => {
     }
 
   } catch (e) {
-    // ここは本当に通信/JSON不正の時だけ
+    resultArea.innerHTML = `<div class="warn"><b>通信エラー</b><br><pre style="white-space:pre-wrap;">${String(e)}</pre></div>`;
     console.error(e);
   } finally {
     btn.disabled = false;
