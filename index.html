@@ -12,7 +12,6 @@
       margin: 0;
       padding: 0;
     }
-
     header {
       background: linear-gradient(90deg, #ffb7c5, #ffe7a1, #b8e5c7);
       padding: 20px;
@@ -22,7 +21,6 @@
       color: #333;
       letter-spacing: 0.05em;
     }
-
     main {
       max-width: 900px;
       margin: 25px auto;
@@ -31,11 +29,7 @@
       border-radius: 15px;
       box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
     }
-
-    .center {
-      text-align: center;
-    }
-
+    .center { text-align: center; }
     button {
       background: #ffb7c5;
       border: none;
@@ -46,11 +40,7 @@
       cursor: pointer;
       transition: 0.2s;
     }
-
-    button:hover {
-      background: #ff99ae;
-    }
-
+    button:hover { background: #ff99ae; }
     .team-card {
       background: #f8fff6;
       border: 2px solid #b8e5c7;
@@ -58,28 +48,27 @@
       padding: 10px 15px;
       margin-bottom: 20px;
     }
-
     .team-title {
       font-weight: bold;
       color: #4a8b65;
       margin-bottom: 5px;
       font-size: 1.1em;
     }
-
-    ul {
-      margin: 0;
-      padding-left: 20px;
-    }
-
-    .member {
-      margin: 2px 0;
-    }
-
+    ul { margin: 0; padding-left: 20px; }
+    .member { margin: 2px 0; }
     .note {
       font-size: 0.9em;
       color: #666;
       text-align: center;
       margin-top: 10px;
+    }
+    .warn {
+      background: #fff3cd;
+      border: 1px solid #ffeeba;
+      padding: 10px 12px;
+      border-radius: 10px;
+      margin-top: 15px;
+      font-size: 0.95em;
     }
   </style>
 </head>
@@ -98,11 +87,12 @@
 
   <script>
     /* ================= 設定 ================= */
-    const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzkJVZy-T89Ve5FqC4wJ7MyW2mXbaVoKHW7ftT2LEdckI_ecLYyoYUVnSsRIEUaQgeK/exec";
+    // ★更新されたURLを反映
+    const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbw706v02H8g5OHpAamD4M0wnc3XKiBTWywx_f62M45KCPqSBE4dnahT-Iy2yWZAs88F9g/exec";
     const SHEET_ID = "1Q5mAiciojHktw4SYMcYTGgeRRWTgg-NDpigQOKVabFQ";
     const TEAM_SIZE = 4;
 
-    // 4人チームで揃えたい職業
+    // 4人チームで揃えたい職業（必要に応じて追加/変更OK）
     const ROLE_NEEDS = { "征服者": 1, "破壊者": 1, "守護者": 1, "掌握者": 1 };
 
     /* ================= 共通関数 ================= */
@@ -110,11 +100,17 @@
       const f = (fixed || "").trim();
       const t = (target || "").trim();
 
+      // 除外
       if (f === "お休み" || t === "お休み") return null;
+      // 「既チーム...」など、"既" で始まるものを除外（必要なら文言に合わせて調整）
       if (f.startsWith("既") || t.startsWith("既")) return null;
 
+      // 固定目標優先
       if (f) return f;
+
+      // 未入力なら64位
       if (!t) return "64位";
+
       return t;
     }
 
@@ -136,10 +132,11 @@
       for (const r in ROLE_NEEDS) {
         lackSum += Math.max(0, ROLE_NEEDS[r] - (roleCount[r] || 0));
       }
+
       return { total, lackSum };
     }
 
-    /* ===== フリー枠で「置換強化」 ===== */
+    /* ===== フリー枠で「置換強化」：同職で弱い人を強いフリーに置換 ===== */
     function upgradeTeamsByFree(teams, free) {
       const freeByRole = {};
       free.forEach(p => {
@@ -147,23 +144,25 @@
         freeByRole[p.role].push(p);
       });
 
-      for (const r in freeByRole) {
-        freeByRole[r].sort((a,b)=> b.skill - a.skill);
-      }
+      // 同職フリーは強い順
+      for (const r in freeByRole) freeByRole[r].sort((a,b)=> b.skill - a.skill);
 
+      // 各チームで、同職の最弱 < フリー最強 なら置換
       for (const team of teams) {
         for (const role in ROLE_NEEDS) {
-          const sameRole = team.map((m,i)=>({m,i})).filter(x=> x.m.role === role);
-          if (sameRole.length === 0) continue;
-          if (!freeByRole[role] || freeByRole[role].length === 0) continue;
+          const pool = freeByRole[role];
+          if (!pool || pool.length === 0) continue;
 
-          sameRole.sort((a,b)=> a.m.skill - b.m.skill);
+          const sameRole = team.map((m,i)=>({m,i})).filter(x => x.m.role === role);
+          if (sameRole.length === 0) continue;
+
+          sameRole.sort((a,b)=> a.m.skill - b.m.skill); // 弱い順
           const weakest = sameRole[0];
-          const strongestFree = freeByRole[role][0];
+          const strongestFree = pool[0];
 
           if (strongestFree.skill > weakest.m.skill) {
             team[weakest.i] = strongestFree;
-            freeByRole[role].shift();
+            pool.shift(); // 消費
           }
         }
       }
@@ -171,6 +170,7 @@
 
     /* ===== チーム作成本体 ===== */
     function buildTeams(players) {
+      // 目標ごとにまとめる（固定目標優先・未入力は64位）
       const byTarget = new Map();
       const free = [];
 
@@ -186,9 +186,11 @@
       const result = new Map();
 
       for (const [target, members] of byTarget.entries()) {
+        // 戦力高い順
         members.sort((a,b)=> b.skill - a.skill);
 
-        const teamCount = Math.ceil(members.length / TEAM_SIZE);
+        // チーム数
+        const teamCount = Math.max(1, Math.ceil(members.length / TEAM_SIZE));
         const teams = Array.from({length: teamCount}, ()=>[]);
 
         // ① 通常メンバーを均等配分
@@ -196,7 +198,7 @@
           teams[i % teamCount].push(m);
         });
 
-        // ② フリー枠で不足補完
+        // ② フリー枠で不足補完（ロール不足優先＋戦力も加点）
         for (let i=0; i<free.length; i++) {
           const p = free[i];
           let bestIdx = -1;
@@ -209,8 +211,8 @@
             const after = teamState(t.concat([p]));
 
             const score =
-              (before.lackSum - after.lackSum) * 100 +
-              (after.total - before.total);
+              (before.lackSum - after.lackSum) * 100 + // ロール不足改善が最優先
+              (after.total - before.total);            // 戦力も加点
 
             if (score > bestScore) {
               bestScore = score;
@@ -225,13 +227,13 @@
           }
         }
 
-        // ③ フリー枠で「同職・高戦力による置換強化」
+        // ③ フリー枠で置換強化（同職・高戦力を優先）
         upgradeTeamsByFree(teams, free);
 
         result.set(target, teams);
       }
 
-      return result;
+      return { grouped: result, remainingFree: free };
     }
 
     /* ================= 実行 ================= */
@@ -241,7 +243,17 @@
       btn.innerText = "取得中...";
 
       try {
-        const res = await fetch(`${APPSCRIPT_URL}?sheetId=${SHEET_ID}`);
+        const url = `${APPSCRIPT_URL}?sheetId=${encodeURIComponent(SHEET_ID)}`;
+
+        const res = await fetch(url, { cache: "no-store" });
+
+        // 失敗時、原因が分かるようにエラーメッセージを出す
+        if (!res.ok) {
+          const text = await res.text().catch(()=> "");
+          throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+        }
+
+        // JSONとして読めない（HTMLが返ってる等）もここで検知
         const data = await res.json();
 
         // シート列名：名前 / 職業 / 戦力 / 固定目標 / 目標順位 を想定
@@ -254,17 +266,20 @@
             role: (row["職業"] || "").trim(),
             skill: Number(row["戦力"]),
             finalTarget: normalizeTarget(fixed, target),
-            free: isFree(fixed, target)
+            free: isFree(fixed, target),
+            _fixed: (fixed || "").trim(),
+            _target: (target || "").trim(),
           };
         }).filter(p =>
           p.name && p.role && Number.isFinite(p.skill) && p.finalTarget !== null
         );
 
-        const grouped = buildTeams(players);
+        const { grouped, remainingFree } = buildTeams(players);
 
         const resultArea = document.getElementById("resultArea");
         resultArea.innerHTML = "";
 
+        // 目標ごとに表示
         for (const [target, teams] of grouped.entries()) {
           const h = document.createElement("div");
           h.style.margin = "20px 0 10px";
@@ -286,9 +301,21 @@
             resultArea.appendChild(div);
           });
         }
+
+        // 余ったフリー枠（使われなかった分）があれば表示
+        if (remainingFree.length > 0) {
+          const warn = document.createElement("div");
+          warn.className = "warn";
+          warn.innerHTML = `
+            <b>未使用のフリー枠：</b><br>
+            ${remainingFree.map(m => `${m.name}（${m.role} / ${m.skill}）`).join("<br>")}
+          `;
+          resultArea.appendChild(warn);
+        }
+
       } catch (e) {
-        alert("スプレッドシートの取得に失敗しました");
-        console.error(e);
+        alert("スプレッドシートの取得に失敗しました。GASの公開設定（全員アクセス可）とシート名・権限を確認してください。");
+        console.error("Fetch error:", e);
       }
 
       btn.disabled = false;
