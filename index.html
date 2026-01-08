@@ -87,36 +87,34 @@
 
   <script>
     /* ================= 設定 ================= */
-    // ★更新されたURLを反映
-    const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbw706v02H8g5OHpAamD4M0wnc3XKiBTWywx_f62M45KCPqSBE4dnahT-Iy2yWZAs88F9g/exec";
-    const SHEET_ID = "1Q5mAiciojHktw4SYMcYTGgeRRWTgg-NDpigQOKVabFQ";
+    // ★ユーザーが提示した最新URL
+    const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbxawhtMXRobc_xBhhnrvuPpMG-420Dppns01JoG3aeZjOWKde7PEpIMwrSq_KAjcymJ/exec";
     const TEAM_SIZE = 4;
 
-    // 4人チームで揃えたい職業（必要に応じて追加/変更OK）
+    // 4人チームで揃えたい職業（シートの「職業」表記に合わせる）
     const ROLE_NEEDS = { "征服者": 1, "破壊者": 1, "守護者": 1, "掌握者": 1 };
 
     /* ================= 共通関数 ================= */
-    function normalizeTarget(fixed, target) {
-      const f = (fixed || "").trim();
-      const t = (target || "").trim();
+    function normalizeTarget(fixedGoal, goal) {
+      const f = (fixedGoal || "").trim();
+      const g = (goal || "").trim();
 
       // 除外
-      if (f === "お休み" || t === "お休み") return null;
-      // 「既チーム...」など、"既" で始まるものを除外（必要なら文言に合わせて調整）
-      if (f.startsWith("既") || t.startsWith("既")) return null;
+      if (f === "お休み" || g === "お休み") return null;
+      if (f.startsWith("既") || g.startsWith("既")) return null;
 
       // 固定目標優先
       if (f) return f;
 
-      // 未入力なら64位
-      if (!t) return "64位";
-
-      return t;
+      // 未入力は64位
+      if (!g) return "64位";
+      return g;
     }
 
-    function isFree(fixed, target) {
-      return (fixed || "").trim() === "フリー枠"
-          || (target || "").trim() === "フリー枠";
+    function isFree(fixedGoal, goal) {
+      const f = (fixedGoal || "").trim();
+      const g = (goal || "").trim();
+      return f === "フリー枠" || g === "フリー枠";
     }
 
     function teamState(team) {
@@ -136,18 +134,15 @@
       return { total, lackSum };
     }
 
-    /* ===== フリー枠で「置換強化」：同職で弱い人を強いフリーに置換 ===== */
+    /* ===== フリー枠で置換強化（同職で弱い人を強いフリーに置換） ===== */
     function upgradeTeamsByFree(teams, free) {
       const freeByRole = {};
       free.forEach(p => {
         if (!freeByRole[p.role]) freeByRole[p.role] = [];
         freeByRole[p.role].push(p);
       });
-
-      // 同職フリーは強い順
       for (const r in freeByRole) freeByRole[r].sort((a,b)=> b.skill - a.skill);
 
-      // 各チームで、同職の最弱 < フリー最強 なら置換
       for (const team of teams) {
         for (const role in ROLE_NEEDS) {
           const pool = freeByRole[role];
@@ -156,51 +151,51 @@
           const sameRole = team.map((m,i)=>({m,i})).filter(x => x.m.role === role);
           if (sameRole.length === 0) continue;
 
-          sameRole.sort((a,b)=> a.m.skill - b.m.skill); // 弱い順
+          sameRole.sort((a,b)=> a.m.skill - b.m.skill);
           const weakest = sameRole[0];
           const strongestFree = pool[0];
 
           if (strongestFree.skill > weakest.m.skill) {
             team[weakest.i] = strongestFree;
-            pool.shift(); // 消費
+            pool.shift();
           }
         }
       }
+
+      // 残りフリーを返す（表示用）
+      const remaining = [];
+      for (const r in freeByRole) remaining.push(...freeByRole[r]);
+      return remaining;
     }
 
     /* ===== チーム作成本体 ===== */
     function buildTeams(players) {
-      // 目標ごとにまとめる（固定目標優先・未入力は64位）
       const byTarget = new Map();
       const free = [];
 
       players.forEach(p => {
-        if (p.free) {
-          free.push(p);
-        } else {
+        if (p.free) free.push(p);
+        else {
           if (!byTarget.has(p.finalTarget)) byTarget.set(p.finalTarget, []);
           byTarget.get(p.finalTarget).push(p);
         }
       });
 
       const result = new Map();
+      let remainingFreeGlobal = [...free];
 
       for (const [target, members] of byTarget.entries()) {
-        // 戦力高い順
         members.sort((a,b)=> b.skill - a.skill);
 
-        // チーム数
         const teamCount = Math.max(1, Math.ceil(members.length / TEAM_SIZE));
         const teams = Array.from({length: teamCount}, ()=>[]);
 
-        // ① 通常メンバーを均等配分
-        members.forEach((m,i)=>{
-          teams[i % teamCount].push(m);
-        });
+        // ① 通常メンバー均等配分
+        members.forEach((m,i)=> teams[i % teamCount].push(m));
 
-        // ② フリー枠で不足補完（ロール不足優先＋戦力も加点）
-        for (let i=0; i<free.length; i++) {
-          const p = free[i];
+        // ② フリー枠で不足補完（ロール不足改善を最優先）
+        for (let i=0; i<remainingFreeGlobal.length; i++) {
+          const p = remainingFreeGlobal[i];
           let bestIdx = -1;
           let bestScore = -Infinity;
 
@@ -209,10 +204,7 @@
 
             const before = teamState(t);
             const after = teamState(t.concat([p]));
-
-            const score =
-              (before.lackSum - after.lackSum) * 100 + // ロール不足改善が最優先
-              (after.total - before.total);            // 戦力も加点
+            const score = (before.lackSum - after.lackSum) * 100 + (after.total - before.total);
 
             if (score > bestScore) {
               bestScore = score;
@@ -222,18 +214,18 @@
 
           if (bestIdx !== -1) {
             teams[bestIdx].push(p);
-            free.splice(i,1);
+            remainingFreeGlobal.splice(i,1);
             i--;
           }
         }
 
-        // ③ フリー枠で置換強化（同職・高戦力を優先）
-        upgradeTeamsByFree(teams, free);
+        // ③ 同職・高戦力で置換強化（この目標のチームに対して）
+        remainingFreeGlobal = upgradeTeamsByFree(teams, remainingFreeGlobal);
 
         result.set(target, teams);
       }
 
-      return { grouped: result, remainingFree: free };
+      return { grouped: result, remainingFree: remainingFreeGlobal };
     }
 
     /* ================= 実行 ================= */
@@ -243,43 +235,39 @@
       btn.innerText = "取得中...";
 
       try {
-        const url = `${APPSCRIPT_URL}?sheetId=${encodeURIComponent(SHEET_ID)}`;
-
-        const res = await fetch(url, { cache: "no-store" });
-
-        // 失敗時、原因が分かるようにエラーメッセージを出す
+        // ★このGASは sheetId パラメータ不要（固定IDで読んでる）
+        const res = await fetch(APPSCRIPT_URL, { cache: "no-store" });
         if (!res.ok) {
           const text = await res.text().catch(()=> "");
           throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
         }
 
-        // JSONとして読めない（HTMLが返ってる等）もここで検知
         const data = await res.json();
 
-        // シート列名：名前 / 職業 / 戦力 / 固定目標 / 目標順位 を想定
-        const players = data.map(row => {
-          const fixed = row["固定目標"];
-          const target = row["目標順位"];
+        // ★GASが返す形式：name / job / power / fixedGoal / goal / other
+        const players = data.map(r => {
+          const name = String(r.name || "").trim();
+          const role = String(r.job || "").trim();
+          const skill = Number(r.power) || 0;
+
+          const fixedGoal = String(r.fixedGoal || "").trim();
+          const goal = String(r.goal || "").trim();
 
           return {
-            name: (row["名前"] || "").trim(),
-            role: (row["職業"] || "").trim(),
-            skill: Number(row["戦力"]),
-            finalTarget: normalizeTarget(fixed, target),
-            free: isFree(fixed, target),
-            _fixed: (fixed || "").trim(),
-            _target: (target || "").trim(),
+            name,
+            role,
+            skill,
+            finalTarget: normalizeTarget(fixedGoal, goal),
+            free: isFree(fixedGoal, goal),
+            other: String(r.other || "").trim(),
           };
-        }).filter(p =>
-          p.name && p.role && Number.isFinite(p.skill) && p.finalTarget !== null
-        );
+        }).filter(p => p.name && p.role && Number.isFinite(p.skill) && p.finalTarget !== null);
 
         const { grouped, remainingFree } = buildTeams(players);
 
         const resultArea = document.getElementById("resultArea");
         resultArea.innerHTML = "";
 
-        // 目標ごとに表示
         for (const [target, teams] of grouped.entries()) {
           const h = document.createElement("div");
           h.style.margin = "20px 0 10px";
@@ -302,7 +290,6 @@
           });
         }
 
-        // 余ったフリー枠（使われなかった分）があれば表示
         if (remainingFree.length > 0) {
           const warn = document.createElement("div");
           warn.className = "warn";
@@ -314,7 +301,7 @@
         }
 
       } catch (e) {
-        alert("スプレッドシートの取得に失敗しました。GASの公開設定（全員アクセス可）とシート名・権限を確認してください。");
+        alert("スプレッドシートの取得に失敗しました。GASの公開設定（全員アクセス可）や doGet のエラーを確認してください。");
         console.error("Fetch error:", e);
       }
 
