@@ -1,170 +1,277 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>チーム自動振り分けツール</title>
+
+  <style>
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #fffafc;
+      color: #444;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: linear-gradient(90deg, #ffb7c5, #ffe7a1, #b8e5c7);
+      padding: 20px;
+      text-align: center;
+      font-size: 1.6em;
+      font-weight: bold;
+      color: #333;
+    }
+    main {
+      max-width: 900px;
+      margin: 25px auto;
+      background: #ffffff;
+      padding: 20px;
+      border-radius: 14px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    .center { text-align: center; }
+
+    button {
+      background: #ffb7c5;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 24px;
+      color: white;
+      font-size: 1em;
+      cursor: pointer;
+    }
+    button:hover { background: #ff99ae; }
+
+    .team-card {
+      background: #f8fff6;
+      border: 2px solid #b8e5c7;
+      border-radius: 10px;
+      padding: 12px 15px;
+      margin-bottom: 16px;
+    }
+    .team-title {
+      font-weight: bold;
+      color: #4a8b65;
+      margin-bottom: 6px;
+    }
+    ul { margin: 0; padding-left: 20px; }
+    .member { margin: 2px 0; }
+
+    .info {
+      background: #e6ffed;
+      border: 1px solid #b7f5c7;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      font-size: 0.9em;
+    }
+    .warn {
+      background: #fff3cd;
+      border: 1px solid #ffeeba;
+      padding: 12px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+
+<header>チーム自動振り分けツール</header>
+
+<main>
+  <div class="info">
+    ✅ ページ読み込み成功（ここが見えていれば GitHub Pages は正常です）
+  </div>
+
+  <div class="center">
+    <button id="fetchBtn">スプレッドシートから取得・振り分け</button>
+  </div>
+
+  <div id="resultArea" style="margin-top:25px;"></div>
+</main>
+
 <script>
-const APPSCRIPT_URL = "あなたの最新GASのexec URL";
+/* ================= 設定 ================= */
+
+// ★ あなたの最新 GAS URL
+const APPSCRIPT_URL =
+  "https://script.google.com/macros/s/AKfycbxAHyD_jBQ667q8P-GRilkvdP8MDE-KwBJ2lk6jE1PYfcGC4R8FbQUbD1L7DbYc-5M/exec";
+
 const TEAM_SIZE = 4;
-const ROLE_NEEDS = { "征服者": 1, "破壊者": 1, "守護者": 1, "掌握者": 1 };
+
+// チームに最低1人ずつ欲しい職業
+const ROLE_NEEDS = {
+  "征服者": 1,
+  "破壊者": 1,
+  "守護者": 1,
+  "掌握者": 1
+};
+
+/* ================= 共通処理 ================= */
 
 function normalizeTarget(fixedGoal, goal) {
   const f = (fixedGoal || "").trim();
   const g = (goal || "").trim();
+
   if (f === "お休み" || g === "お休み") return null;
   if (f.startsWith("既") || g.startsWith("既")) return null;
+
   if (f) return f;
   if (!g) return "64位";
   return g;
 }
+
 function isFree(fixedGoal, goal) {
-  const f = (fixedGoal || "").trim();
-  const g = (goal || "").trim();
-  return f === "フリー枠" || g === "フリー枠";
+  return fixedGoal === "フリー枠" || goal === "フリー枠";
 }
+
 function teamState(team) {
-  const roleCount = {};
-  let total = 0;
-  team.forEach(m => {
-    total += m.skill;
-    roleCount[m.role] = (roleCount[m.role] || 0) + 1;
+  const roles = {};
+  let power = 0;
+
+  team.forEach(p => {
+    power += p.skill;
+    roles[p.role] = (roles[p.role] || 0) + 1;
   });
-  let lackSum = 0;
-  for (const r in ROLE_NEEDS) lackSum += Math.max(0, ROLE_NEEDS[r] - (roleCount[r] || 0));
-  return { total, lackSum };
+
+  let lack = 0;
+  for (const r in ROLE_NEEDS) {
+    lack += Math.max(0, ROLE_NEEDS[r] - (roles[r] || 0));
+  }
+
+  return { power, lack };
 }
-function upgradeTeamsByFree(teams, free) {
-  const freeByRole = {};
-  free.forEach(p => (freeByRole[p.role] ??= []).push(p));
-  for (const r in freeByRole) freeByRole[r].sort((a,b)=> b.skill - a.skill);
+
+/* ===== フリー枠で同職・高戦力に置換 ===== */
+function upgradeByFree(teams, free) {
+  const byRole = {};
+  free.forEach(p => (byRole[p.role] ??= []).push(p));
+  for (const r in byRole) byRole[r].sort((a,b)=> b.skill - a.skill);
 
   for (const team of teams) {
     for (const role in ROLE_NEEDS) {
-      const pool = freeByRole[role];
-      if (!pool?.length) continue;
+      if (!byRole[role]?.length) continue;
 
-      const sameRole = team.map((m,i)=>({m,i})).filter(x => x.m.role === role);
-      if (!sameRole.length) continue;
+      const same = team.map((m,i)=>({m,i})).filter(x=>x.m.role===role);
+      if (!same.length) continue;
 
-      sameRole.sort((a,b)=> a.m.skill - b.m.skill);
-      const weakest = sameRole[0];
-      const strongestFree = pool[0];
-      if (strongestFree.skill > weakest.m.skill) {
-        team[weakest.i] = strongestFree;
-        pool.shift();
+      same.sort((a,b)=> a.m.skill - b.m.skill);
+      if (byRole[role][0].skill > same[0].m.skill) {
+        team[same[0].i] = byRole[role].shift();
       }
     }
   }
 
-  const remaining = [];
-  for (const r in freeByRole) remaining.push(...freeByRole[r]);
-  return remaining;
+  return Object.values(byRole).flat();
 }
+
+/* ================= チーム生成 ================= */
+
 function buildTeams(players) {
-  const byTarget = new Map();
+  const groups = new Map();
   let free = [];
-  players.forEach(p => p.free ? free.push(p) : (byTarget.get(p.finalTarget) ?? byTarget.set(p.finalTarget, []).get(p.finalTarget)).push(p));
+
+  players.forEach(p => {
+    if (p.free) free.push(p);
+    else {
+      if (!groups.has(p.target)) groups.set(p.target, []);
+      groups.get(p.target).push(p);
+    }
+  });
 
   const result = new Map();
-  for (const [target, members] of byTarget.entries()) {
+
+  for (const [target, members] of groups.entries()) {
     members.sort((a,b)=> b.skill - a.skill);
-    const teamCount = Math.max(1, Math.ceil(members.length / TEAM_SIZE));
+    const teamCount = Math.ceil(members.length / TEAM_SIZE);
     const teams = Array.from({length: teamCount}, ()=>[]);
+
     members.forEach((m,i)=> teams[i % teamCount].push(m));
 
-    // free補完
+    // フリー枠で不足補完
     for (let i=0; i<free.length; i++) {
       const p = free[i];
-      let bestIdx = -1, bestScore = -Infinity;
+      let best = -1, score = -Infinity;
+
       teams.forEach((t,idx)=>{
         if (t.length >= TEAM_SIZE) return;
-        const before = teamState(t);
-        const after = teamState(t.concat([p]));
-        const score = (before.lackSum - after.lackSum) * 100 + (after.total - before.total);
-        if (score > bestScore) { bestScore = score; bestIdx = idx; }
+        const b = teamState(t);
+        const a = teamState([...t,p]);
+        const s = (b.lack - a.lack)*100 + (a.power - b.power);
+        if (s > score) { score=s; best=idx; }
       });
-      if (bestIdx !== -1) { teams[bestIdx].push(p); free.splice(i,1); i--; }
+
+      if (best !== -1) {
+        teams[best].push(p);
+        free.splice(i,1); i--;
+      }
     }
 
     // 置換強化
-    free = upgradeTeamsByFree(teams, free);
+    free = upgradeByFree(teams, free);
+
     result.set(target, teams);
   }
-  return { grouped: result, remainingFree: free };
+
+  return { result, free };
 }
 
+/* ================= 実行 ================= */
+
 document.getElementById("fetchBtn").addEventListener("click", async () => {
-  const btn = document.getElementById("fetchBtn");
-  const resultArea = document.getElementById("resultArea");
-  btn.disabled = true;
-  btn.innerText = "取得中...";
-  resultArea.innerHTML = "";
+  const area = document.getElementById("resultArea");
+  area.innerHTML = "";
 
   try {
-    const res = await fetch(APPSCRIPT_URL, { cache: "no-store" });
+    const res = await fetch(APPSCRIPT_URL, { cache:"no-store" });
     const text = await res.text();
-
     let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      resultArea.innerHTML = `<div class="warn"><b>GASがJSON以外を返しました</b><br><pre style="white-space:pre-wrap;">${text.slice(0, 1500)}</pre></div>`;
-      return;
-    }
 
-    // GASがエラーJSONを返した場合
-    if (data && data.ok === false) {
-      resultArea.innerHTML = `<div class="warn"><b>GASエラー</b><br><pre style="white-space:pre-wrap;">${data.error}</pre></div>`;
+    try { data = JSON.parse(text); }
+    catch {
+      area.innerHTML = `<div class="warn">❌ GASがJSONを返していません\n\n${text}</div>`;
       return;
     }
 
     if (!Array.isArray(data) || data.length === 0) {
-      resultArea.innerHTML = `<div class="warn"><b>データが0件です</b><br>ヘッダー行/データ開始行/列名を確認してください。</div>`;
+      area.innerHTML = `<div class="warn">⚠ データが0件です</div>`;
       return;
     }
 
-    const players = data.map(r => {
-      const name = String(r.name || "").trim();
-      const role = String(r.job || "").trim();
-      const skill = Number(r.power) || 0;
-      const fixedGoal = String(r.fixedGoal || "").trim();
-      const goal = String(r.goal || "").trim();
-      return { name, role, skill, finalTarget: normalizeTarget(fixedGoal, goal), free: isFree(fixedGoal, goal) };
-    }).filter(p => p.name && p.role && Number.isFinite(p.skill) && p.finalTarget !== null);
+    const players = data.map(r => ({
+      name: String(r.name||"").trim(),
+      role: String(r.job||"").trim(),
+      skill: Number(r.power)||0,
+      target: normalizeTarget(r.fixedGoal, r.goal),
+      free: isFree(r.fixedGoal, r.goal)
+    })).filter(p=>p.name && p.role && p.target!==null);
 
-    if (players.length === 0) {
-      resultArea.innerHTML = `<div class="warn"><b>表示できる人が0人です</b><br>列値（名前/職業/目標）が空になっていないか確認してください。</div>`;
-      return;
-    }
+    const { result, free } = buildTeams(players);
 
-    const { grouped, remainingFree } = buildTeams(players);
-
-    for (const [target, teams] of grouped.entries()) {
-      const h = document.createElement("div");
-      h.style.margin = "20px 0 10px";
-      h.style.fontWeight = "bold";
+    for (const [target, teams] of result.entries()) {
+      const h = document.createElement("h3");
       h.textContent = `目標：${target}`;
-      resultArea.appendChild(h);
+      area.appendChild(h);
 
-      teams.forEach((team,i)=>{
-        const div = document.createElement("div");
-        div.className = "team-card";
-        div.innerHTML = `
-          <div class="team-title">チーム ${i+1}</div>
-          <ul>${team.map(m => `<li class="member">${m.name}（${m.role} / ${m.skill}）</li>`).join("")}</ul>
-        `;
-        resultArea.appendChild(div);
+      teams.forEach((t,i)=>{
+        const d = document.createElement("div");
+        d.className = "team-card";
+        d.innerHTML = `<div class="team-title">チーム ${i+1}</div>
+          <ul>${t.map(m=>`<li>${m.name}（${m.role} / ${m.skill}）</li>`).join("")}</ul>`;
+        area.appendChild(d);
       });
     }
 
-    if (remainingFree.length) {
-      const warn = document.createElement("div");
-      warn.className = "warn";
-      warn.innerHTML = `<b>未使用のフリー枠：</b><br>${remainingFree.map(m => `${m.name}（${m.role} / ${m.skill}）`).join("<br>")}`;
-      resultArea.appendChild(warn);
+    if (free.length) {
+      area.innerHTML += `<div class="warn">未使用フリー枠\n\n${free.map(m=>`${m.name}（${m.role} / ${m.skill}）`).join("\n")}</div>`;
     }
 
   } catch (e) {
-    resultArea.innerHTML = `<div class="warn"><b>通信エラー</b><br><pre style="white-space:pre-wrap;">${String(e)}</pre></div>`;
-    console.error(e);
-  } finally {
-    btn.disabled = false;
-    btn.innerText = "スプレッドシートから取得・振り分け";
+    area.innerHTML = `<div class="warn">❌ 通信エラー\n\n${e}</div>`;
   }
 });
 </script>
+
+</body>
+</html>
