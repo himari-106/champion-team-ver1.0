@@ -1,10 +1,10 @@
 <script>
-/* ====== 設定 ====== */
+/* ================= 設定 ================= */
 const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzkJVZy-T89Ve5FqC4wJ7MyW2mXbaVoKHW7ftT2LEdckI_ecLYyoYUVnSsRIEUaQgeK/exec";
 const SHEET_ID = "1Q5mAiciojHktw4SYMcYTGgeRRWTgg-NDpigQOKVabFQ";
 const TEAM_SIZE = 4;
 
-// ロール目標（4人チーム想定）
+// 4人チームで揃えたい職業
 const ROLE_NEEDS = {
   "征服者": 1,
   "破壊者": 1,
@@ -12,7 +12,7 @@ const ROLE_NEEDS = {
   "掌握者": 1
 };
 
-/* ====== 共通関数 ====== */
+/* ================= 共通関数 ================= */
 function normalizeTarget(fixed, target) {
   const f = (fixed || "").trim();
   const t = (target || "").trim();
@@ -47,7 +47,42 @@ function teamState(team) {
   return { total, lackSum };
 }
 
-function buildTeamsWithFree(players) {
+/* ===== フリー枠で「置換強化」 ===== */
+function upgradeTeamsByFree(teams, free) {
+  const freeByRole = {};
+
+  free.forEach(p => {
+    if (!freeByRole[p.role]) freeByRole[p.role] = [];
+    freeByRole[p.role].push(p);
+  });
+
+  for (const r in freeByRole) {
+    freeByRole[r].sort((a,b)=> b.skill - a.skill);
+  }
+
+  for (const team of teams) {
+    for (const role in ROLE_NEEDS) {
+      const sameRole = team
+        .map((m,i)=>({m,i}))
+        .filter(x=> x.m.role === role);
+
+      if (sameRole.length === 0) continue;
+      if (!freeByRole[role] || freeByRole[role].length === 0) continue;
+
+      sameRole.sort((a,b)=> a.m.skill - b.m.skill);
+      const weakest = sameRole[0];
+      const strongestFree = freeByRole[role][0];
+
+      if (strongestFree.skill > weakest.m.skill) {
+        team[weakest.i] = strongestFree;
+        freeByRole[role].shift();
+      }
+    }
+  }
+}
+
+/* ===== チーム作成本体 ===== */
+function buildTeams(players) {
   const byTarget = new Map();
   const free = [];
 
@@ -63,23 +98,23 @@ function buildTeamsWithFree(players) {
   const result = new Map();
 
   for (const [target, members] of byTarget.entries()) {
-    members.sort((a, b) => b.skill - a.skill);
+    members.sort((a,b)=> b.skill - a.skill);
 
     const teamCount = Math.ceil(members.length / TEAM_SIZE);
-    const teams = Array.from({ length: teamCount }, () => []);
+    const teams = Array.from({length: teamCount}, ()=>[]);
 
-    // ① 通常メンバーで均等配布
-    members.forEach((m, i) => {
+    // ① 通常メンバーを均等配分
+    members.forEach((m,i)=>{
       teams[i % teamCount].push(m);
     });
 
     // ② フリー枠で不足補完
-    for (let i = 0; i < free.length; i++) {
+    for (let i=0; i<free.length; i++) {
       const p = free[i];
       let bestIdx = -1;
       let bestScore = -Infinity;
 
-      teams.forEach((t, idx) => {
+      teams.forEach((t,idx)=>{
         if (t.length >= TEAM_SIZE) return;
 
         const before = teamState(t);
@@ -97,10 +132,13 @@ function buildTeamsWithFree(players) {
 
       if (bestIdx !== -1) {
         teams[bestIdx].push(p);
-        free.splice(i, 1);
+        free.splice(i,1);
         i--;
       }
     }
+
+    // ③ フリー枠で「同職・高戦力による置換強化」
+    upgradeTeamsByFree(teams, free);
 
     result.set(target, teams);
   }
@@ -108,7 +146,7 @@ function buildTeamsWithFree(players) {
   return result;
 }
 
-/* ====== メイン処理 ====== */
+/* ================= 実行 ================= */
 document.getElementById("fetchBtn").addEventListener("click", async () => {
   const btn = document.getElementById("fetchBtn");
   btn.disabled = true;
@@ -127,13 +165,13 @@ document.getElementById("fetchBtn").addEventListener("click", async () => {
         role: (row["職業"] || "").trim(),
         skill: Number(row["戦力"]),
         finalTarget: normalizeTarget(fixed, target),
-        free: isFree(fixed, target),
+        free: isFree(fixed, target)
       };
     }).filter(p =>
       p.name && p.role && Number.isFinite(p.skill) && p.finalTarget !== null
     );
 
-    const grouped = buildTeamsWithFree(players);
+    const grouped = buildTeams(players);
 
     const resultArea = document.getElementById("resultArea");
     resultArea.innerHTML = "";
@@ -145,11 +183,11 @@ document.getElementById("fetchBtn").addEventListener("click", async () => {
       h.textContent = `目標：${target}`;
       resultArea.appendChild(h);
 
-      teams.forEach((team, i) => {
+      teams.forEach((team,i)=>{
         const div = document.createElement("div");
         div.className = "team-card";
         div.innerHTML = `
-          <div class="team-title">チーム ${i + 1}</div>
+          <div class="team-title">チーム ${i+1}</div>
           <ul>
             ${team.map(m =>
               `<li class="member">${m.name}（${m.role} / ${m.skill}）</li>`
