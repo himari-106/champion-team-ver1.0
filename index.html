@@ -1,290 +1,170 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>チーム自動振り分けツール</title>
-  <style>
-    body {
-      font-family: "Segoe UI", sans-serif;
-      background: #fffafc;
-      color: #444;
-      margin: 0;
-      padding: 0;
-    }
-    header {
-      background: linear-gradient(90deg, #ffb7c5, #ffe7a1, #b8e5c7);
-      padding: 20px;
-      text-align: center;
-      font-size: 1.6em;
-      font-weight: bold;
-      color: #333;
-    }
-    main {
-      max-width: 900px;
-      margin: 25px auto;
-      background: #ffffffc9;
-      padding: 20px;
-      border-radius: 15px;
-      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
-    }
-    .center { text-align: center; }
-    button {
-      background: #ffb7c5;
-      border: none;
-      border-radius: 8px;
-      padding: 10px 25px;
-      color: white;
-      font-size: 1em;
-      cursor: pointer;
-      transition: 0.2s;
-    }
-    button:hover { background: #ff99ae; }
-    .team-card {
-      background: #f8fff6;
-      border: 2px solid #b8e5c7;
-      border-radius: 10px;
-      padding: 10px 15px;
-      margin-bottom: 20px;
-    }
-    .team-title {
-      font-weight: bold;
-      color: #4a8b65;
-      margin-bottom: 5px;
-      font-size: 1.1em;
-    }
-    ul { margin: 0; padding-left: 20px; }
-    .member { margin: 2px 0; }
-    .note {
-      font-size: 0.9em;
-      color: #666;
-      text-align: center;
-      margin-top: 10px;
-    }
-  </style>
-</head>
-<body>
-  <header>チーム自動振り分けツール</header>
-  <main>
-    <div class="center">
-      <button id="fetchBtn">スプレッドシートから取得・振り分け</button>
-    </div>
-    <div id="resultArea" style="margin-top:25px;"></div>
-    <div class="note">
-      ※スプレッドシートの更新内容が反映されるまで数秒かかる場合があります。
-    </div>
-  </main>
+<script>
+/* ====== 設定 ====== */
+const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzkJVZy-T89Ve5FqC4wJ7MyW2mXbaVoKHW7ftT2LEdckI_ecLYyoYUVnSsRIEUaQgeK/exec";
+const SHEET_ID = "1Q5mAiciojHktw4SYMcYTGgeRRWTgg-NDpigQOKVabFQ";
+const TEAM_SIZE = 4;
 
-  <script>
-  document.addEventListener("DOMContentLoaded", () => {
-    // ★ 最新の Apps Script Web アプリ URL
-    const APPSCRIPT_URL =
-      "https://script.google.com/macros/s/AKfycbzK9gI1pAoooop2aV27_goVTR8rA-DO9GPP7plVX7jOxiuemtkXarEC48V3ABF5X8ip/exec";
+// ロール目標（4人チーム想定）
+const ROLE_NEEDS = {
+  "征服者": 1,
+  "破壊者": 1,
+  "守護者": 1,
+  "掌握者": 1
+};
 
-    const TEAM_SIZE = 4;
-    const ROLES = ["破壊者", "掌握者", "征服者", "守護者"];
+/* ====== 共通関数 ====== */
+function normalizeTarget(fixed, target) {
+  const f = (fixed || "").trim();
+  const t = (target || "").trim();
 
-    // 目標順位の優先順
-    const GOAL_PRIORITY = [
-      "1位",
-      "2位",
-      "4位",
-      "8位",
-      "16位",
-      "32位",
-      "64位(目標なし)",
-      "フリー枠"
-    ];
+  if (f === "お休み" || t === "お休み") return null;
+  if (f.startsWith("既") || t.startsWith("既")) return null;
 
-    // チーム分け対象外
-    const EXCLUDE_GOALS = new Set([
-      "お休み",
-      "未選択",
-      "チーム分け不要",
-      "既チームあり",
-      "",
-      null,
-      undefined
-    ]);
+  if (f) return f;
+  if (!t) return "64位";
+  return t;
+}
 
-    const makeTeam = (goalLabel) => ({
-      members: [],
-      power: 0,
-      roles: new Set(),
-      goal: goalLabel
-    });
+function isFree(fixed, target) {
+  return (fixed || "").trim() === "フリー枠"
+      || (target || "").trim() === "フリー枠";
+}
 
-    const addMember = (team, member) => {
-      team.members.push(member);
-      team.power += member.power || 0;
-      team.roles.add(member.job);
-    };
+function teamState(team) {
+  const roleCount = {};
+  let total = 0;
 
-    document.getElementById("fetchBtn").addEventListener("click", async () => {
-      const btn = document.getElementById("fetchBtn");
-      const resultArea = document.getElementById("resultArea");
-
-      btn.disabled = true;
-      btn.innerText = "取得中...";
-      resultArea.innerHTML = "";
-
-      try {
-        const res = await fetch(`${APPSCRIPT_URL}?t=${Date.now()}`, {
-          cache: "no-store"
-        });
-        const data = await res.json();
-
-        // データ整形
-        const members = data
-          .filter(d => d.name && d.job)
-          .map((d, i) => ({
-            id: `${d.name}_${i}`,
-            name: d.name.trim(),
-            job: d.job.trim(),
-            power: Number(d.power) || 0,
-            goal: d.goal ? d.goal.trim() : ""
-          }))
-          .filter(m => !EXCLUDE_GOALS.has(m.goal)); // 対象外の目標は除外
-
-        // 目標がGOAL_PRIORITYにないものは無視
-        const validMembers = members.filter(m =>
-          GOAL_PRIORITY.includes(m.goal)
-        );
-
-        // 目標ごとにプールを作成
-        const poolByGoal = {};
-        GOAL_PRIORITY.forEach(g => (poolByGoal[g] = []));
-        validMembers.forEach(m => {
-          poolByGoal[m.goal].push(m);
-        });
-
-        // 各プールを戦力降順にしておく
-        GOAL_PRIORITY.forEach(goal => {
-          poolByGoal[goal].sort((a, b) => b.power - a.power);
-        });
-
-        const assignedIds = new Set();
-
-        // 指定 goal のプールから条件に合う1人を取り出す
-        function takeFromGoal(goal, predicate) {
-          const pool = poolByGoal[goal];
-          for (let i = 0; i < pool.length; i++) {
-            const m = pool[i];
-            if (assignedIds.has(m.id)) continue;
-            if (predicate && !predicate(m)) continue;
-            pool.splice(i, 1);
-            assignedIds.add(m.id);
-            return m;
-          }
-          return null;
-        }
-
-        // 下位目標から職業優先→戦力順で補充
-        function borrowFromLowerGoals(team, startIndex) {
-          // 1. まず職業バランス優先
-          for (let gi = startIndex; gi < GOAL_PRIORITY.length && team.members.length < TEAM_SIZE; gi++) {
-            const lowerGoal = GOAL_PRIORITY[gi];
-
-            // 足りない職業を優先補充
-            for (const role of ROLES) {
-              if (team.members.length >= TEAM_SIZE) break;
-              if (team.roles.has(role)) continue;
-              const cand = takeFromGoal(lowerGoal, m => m.job === role);
-              if (cand) addMember(team, cand);
-            }
-          }
-
-          // 2. まだ枠があれば、全職業から戦力順で補充
-          for (let gi = startIndex; gi < GOAL_PRIORITY.length && team.members.length < TEAM_SIZE; gi++) {
-            const lowerGoal = GOAL_PRIORITY[gi];
-            let cand;
-            while (team.members.length < TEAM_SIZE && (cand = takeFromGoal(lowerGoal, null))) {
-              addMember(team, cand);
-            }
-          }
-        }
-
-        const resultGroups = [];
-
-        // 高い目標から順にチームを作成
-        GOAL_PRIORITY.forEach((goal, goalIndex) => {
-          const teamsForGoal = [];
-
-          const hasUnassignedInGoal = () =>
-            poolByGoal[goal].some(m => !assignedIds.has(m.id));
-
-          while (hasUnassignedInGoal()) {
-            const team = makeTeam(goal);
-
-            // 1. 同じ目標の中で職業バランスを優先
-            for (const role of ROLES) {
-              if (team.members.length >= TEAM_SIZE) break;
-              const cand = takeFromGoal(goal, m => m.job === role);
-              if (cand) addMember(team, cand);
-            }
-
-            // 2. まだ枠があれば、同じ目標から戦力順で補充
-            let cand;
-            while (team.members.length < TEAM_SIZE &&
-                   (cand = takeFromGoal(goal, null))) {
-              addMember(team, cand);
-            }
-
-            // 3. それでも足りない場合は、下位目標から補充
-            if (team.members.length < TEAM_SIZE) {
-              borrowFromLowerGoals(team, goalIndex + 1);
-            }
-
-            if (team.members.length > 0) {
-              teamsForGoal.push(team);
-            }
-          }
-
-          if (teamsForGoal.length > 0) {
-            resultGroups.push({ goal, teams: teamsForGoal });
-          }
-        });
-
-        // 結果表示
-        resultGroups.forEach(group => {
-          const goalTitle = document.createElement("h3");
-          goalTitle.textContent = `目標順位: ${group.goal}`;
-          resultArea.appendChild(goalTitle);
-
-          group.teams.forEach((team, i) => {
-            const div = document.createElement("div");
-            div.className = "team-card";
-            div.innerHTML = `
-              <div class="team-title">チーム ${i + 1}（${team.members.length}人）</div>
-              <ul>
-                ${team.members
-                  .map(
-                    m => `
-                  <li class="member">
-                    ${m.name}（${m.job}）<br>
-                    戦力: ${m.power} ／ 目標順位: ${m.goal}
-                  </li>`
-                  )
-                  .join("")}
-              </ul>
-            `;
-            resultArea.appendChild(div);
-          });
-        });
-
-        if (resultGroups.length === 0) {
-          resultArea.textContent = "対象のメンバーがいません。";
-        }
-
-      } catch (err) {
-        alert("スプレッドシートの取得に失敗しました。");
-        console.error(err);
-      }
-
-      btn.disabled = false;
-      btn.innerText = "スプレッドシートから取得・振り分け";
-    });
+  team.forEach(m => {
+    total += m.skill;
+    roleCount[m.role] = (roleCount[m.role] || 0) + 1;
   });
-  </script>
-</body>
-</html>
+
+  let lackSum = 0;
+  for (const r in ROLE_NEEDS) {
+    lackSum += Math.max(0, ROLE_NEEDS[r] - (roleCount[r] || 0));
+  }
+
+  return { total, lackSum };
+}
+
+function buildTeamsWithFree(players) {
+  const byTarget = new Map();
+  const free = [];
+
+  players.forEach(p => {
+    if (p.free) {
+      free.push(p);
+    } else {
+      if (!byTarget.has(p.finalTarget)) byTarget.set(p.finalTarget, []);
+      byTarget.get(p.finalTarget).push(p);
+    }
+  });
+
+  const result = new Map();
+
+  for (const [target, members] of byTarget.entries()) {
+    members.sort((a, b) => b.skill - a.skill);
+
+    const teamCount = Math.ceil(members.length / TEAM_SIZE);
+    const teams = Array.from({ length: teamCount }, () => []);
+
+    // ① 通常メンバーで均等配布
+    members.forEach((m, i) => {
+      teams[i % teamCount].push(m);
+    });
+
+    // ② フリー枠で不足補完
+    for (let i = 0; i < free.length; i++) {
+      const p = free[i];
+      let bestIdx = -1;
+      let bestScore = -Infinity;
+
+      teams.forEach((t, idx) => {
+        if (t.length >= TEAM_SIZE) return;
+
+        const before = teamState(t);
+        const after = teamState(t.concat([p]));
+
+        const score =
+          (before.lackSum - after.lackSum) * 100 +
+          (after.total - before.total);
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestIdx = idx;
+        }
+      });
+
+      if (bestIdx !== -1) {
+        teams[bestIdx].push(p);
+        free.splice(i, 1);
+        i--;
+      }
+    }
+
+    result.set(target, teams);
+  }
+
+  return result;
+}
+
+/* ====== メイン処理 ====== */
+document.getElementById("fetchBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("fetchBtn");
+  btn.disabled = true;
+  btn.innerText = "取得中...";
+
+  try {
+    const res = await fetch(`${APPSCRIPT_URL}?sheetId=${SHEET_ID}`);
+    const data = await res.json();
+
+    const players = data.map(row => {
+      const fixed = row["固定目標"];
+      const target = row["目標順位"];
+
+      return {
+        name: (row["名前"] || "").trim(),
+        role: (row["職業"] || "").trim(),
+        skill: Number(row["戦力"]),
+        finalTarget: normalizeTarget(fixed, target),
+        free: isFree(fixed, target),
+      };
+    }).filter(p =>
+      p.name && p.role && Number.isFinite(p.skill) && p.finalTarget !== null
+    );
+
+    const grouped = buildTeamsWithFree(players);
+
+    const resultArea = document.getElementById("resultArea");
+    resultArea.innerHTML = "";
+
+    for (const [target, teams] of grouped.entries()) {
+      const h = document.createElement("div");
+      h.style.margin = "20px 0 10px";
+      h.style.fontWeight = "bold";
+      h.textContent = `目標：${target}`;
+      resultArea.appendChild(h);
+
+      teams.forEach((team, i) => {
+        const div = document.createElement("div");
+        div.className = "team-card";
+        div.innerHTML = `
+          <div class="team-title">チーム ${i + 1}</div>
+          <ul>
+            ${team.map(m =>
+              `<li class="member">${m.name}（${m.role} / ${m.skill}）</li>`
+            ).join("")}
+          </ul>
+        `;
+        resultArea.appendChild(div);
+      });
+    }
+  } catch (e) {
+    alert("スプレッドシートの取得に失敗しました");
+    console.error(e);
+  }
+
+  btn.disabled = false;
+  btn.innerText = "スプレッドシートから取得・振り分け";
+});
+</script>
