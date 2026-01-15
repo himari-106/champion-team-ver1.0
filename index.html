@@ -13,9 +13,12 @@
     button:disabled { opacity:.6; cursor:not-allowed; }
     .team-card { background:#f8fff6; border:2px solid #b8e5c7; border-radius:10px; padding:10px 15px; margin-bottom:16px; }
     .team-title { font-weight:bold; color:#4a8b65; margin-bottom:5px; font-size:1.1em; }
-    .warn { background:#fff3cd; border:1px solid #ffeeba; padding:12px; border-radius:10px; margin-top:15px; white-space:pre-wrap; }
     ul { margin:0; padding-left:20px; }
     .meta { color:#666; font-size:0.9em; margin-top:10px; text-align:center; }
+    .log { margin-top:15px; padding:12px; border-radius:10px; border:1px solid #ddd; background:#fafafa; white-space:pre-wrap; }
+    .log.ok { border-color:#b7f5c7; background:#e6ffed; }
+    .log.warn { border-color:#ffeeba; background:#fff3cd; }
+    .log.err { border-color:#f5b7b7; background:#ffe6e6; }
   </style>
 </head>
 <body>
@@ -26,19 +29,32 @@
     <button id="fetchBtn">スプレッドシートから取得・振り分け</button>
     <div class="meta">条件：目標ごとにチーム作成 → フリー枠で不足補完 → 同職なら高戦力フリー枠で置換</div>
   </div>
+
+  <div id="log" class="log ok">✅ ページ起動OK（ここが出ていればJSは動いています）</div>
   <div id="resultArea" style="margin-top:25px;"></div>
 </main>
 
 <script>
-  // ✅ あなたの /exec URL（反映済み）
+  // ✅ あなたの /exec URL（固定）
   const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbDG4-Sgewbm3Ti_mbgkSRCPyKmoYXQwlaQVeByQumwR1xlLcccGztIoYp04T-YJ6f/exec";
 
   const TEAM_SIZE = 4;
-
-  // 4人チームで「最低1人ずつ欲しい職業」（必要なら変更OK）
   const ROLE_NEEDS = { "征服者":1, "破壊者":1, "守護者":1, "掌握者":1 };
 
-  // 目標の決定（固定目標優先、次に目標順位、未入力は64位）
+  const logEl = document.getElementById("log");
+  function setLog(type, msg){
+    logEl.className = "log " + (type || "warn");
+    logEl.textContent = msg;
+  }
+
+  // 画面真っ白防止：JSエラーを必ず表示
+  window.addEventListener("error", (e) => {
+    setLog("err", "❌ JSエラー\n" + (e.message||"") + "\n" + (e.filename||"") + ":" + (e.lineno||""));
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    setLog("err", "❌ Promiseエラー\n" + String(e.reason||""));
+  });
+
   function targetOf(p){
     const f = (p.fixedGoal||"").trim();
     const g = (p.goal||"").trim();
@@ -48,7 +64,6 @@
     if (!g) return "64位";
     return g;
   }
-
   function isFree(p){
     const f = (p.fixedGoal||"").trim();
     const g = (p.goal||"").trim();
@@ -58,10 +73,10 @@
   function teamState(team){
     const roleCount = {};
     let power = 0;
-    team.forEach(m=>{
+    for(const m of team){
       power += m.power;
       roleCount[m.job] = (roleCount[m.job]||0)+1;
-    });
+    }
     let lack = 0;
     for(const r in ROLE_NEEDS){
       lack += Math.max(0, ROLE_NEEDS[r] - (roleCount[r]||0));
@@ -69,39 +84,28 @@
     return { power, lack, roleCount };
   }
 
-  // フリー枠を「不足改善 + 戦力」で投入
   function fillByFree(teams, free){
     for(let i=0;i<free.length;i++){
       const p = free[i];
       let bestIdx = -1;
       let bestScore = -Infinity;
-
       for(let t=0;t<teams.length;t++){
         if(teams[t].length >= TEAM_SIZE) continue;
         const b = teamState(teams[t]);
         const a = teamState(teams[t].concat([p]));
-
-        // 不足改善を強く、戦力も少し評価
         const score = (b.lack - a.lack)*100 + (a.power - b.power);
-
-        if(score > bestScore){
-          bestScore = score;
-          bestIdx = t;
-        }
+        if(score > bestScore){ bestScore = score; bestIdx = t; }
       }
-
       if(bestIdx !== -1){
         teams[bestIdx].push(p);
-        free.splice(i,1);
-        i--;
+        free.splice(i,1); i--;
       }
     }
   }
 
-  // 同職なら「チーム内最弱」を「同職フリー最強」で置換
   function upgradeByFree(teams, free){
     const byRole = {};
-    free.forEach(p => (byRole[p.job] ??= []).push(p));
+    for(const p of free) (byRole[p.job] ??= []).push(p);
     for(const r in byRole) byRole[r].sort((a,b)=> b.power - a.power);
 
     for(const team of teams){
@@ -112,7 +116,7 @@
         const same = team.map((m,idx)=>({m,idx})).filter(x=>x.m.job===role);
         if(same.length===0) continue;
 
-        same.sort((a,b)=> a.m.power - b.m.power); // 弱い順
+        same.sort((a,b)=> a.m.power - b.m.power);
         const weakest = same[0];
         const strongestFree = pool[0];
 
@@ -122,8 +126,7 @@
         }
       }
     }
-
-    return Object.values(byRole).flat(); // 使われなかったフリー
+    return Object.values(byRole).flat();
   }
 
   function render(area, target, teams){
@@ -146,27 +149,51 @@
     });
   }
 
+  async function fetchJsonWithTimeout(url, ms){
+    const controller = new AbortController();
+    const timer = setTimeout(()=>controller.abort(), ms);
+    try{
+      const res = await fetch(url + (url.includes("?") ? "&" : "?") + "_=" + Date.now(), {
+        cache:"no-store",
+        signal: controller.signal
+      });
+
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+      const text = await res.text();
+
+      // JSONじゃない場合も原因が見えるように返す
+      if(!ct.includes("application/json")){
+        throw new Error("JSONではない応答を受信しました\ncontent-type=" + ct + "\n---\n" + text.slice(0, 300));
+      }
+      return JSON.parse(text);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   document.getElementById("fetchBtn").addEventListener("click", async ()=>{
     const btn = document.getElementById("fetchBtn");
     const area = document.getElementById("resultArea");
+
     btn.disabled = true;
     btn.textContent = "取得中...";
     area.innerHTML = "";
+    setLog("warn", "…取得開始\n" + APPSCRIPT_URL);
 
     try{
-      const res = await fetch(APPSCRIPT_URL, { cache:"no-store" });
-      const data = await res.json();
+      const data = await fetchJsonWithTimeout(APPSCRIPT_URL, 15000);
 
       if (data && data.ok === false){
-        area.innerHTML = `<div class="warn">GASエラー\n\n${data.error}</div>`;
+        setLog("err", "❌ GASエラー\n" + data.error);
         return;
       }
       if (!Array.isArray(data) || data.length===0){
-        area.innerHTML = `<div class="warn">データが0件です</div>`;
+        setLog("err", "❌ データが0件です（シート側の入力/ヘッダー位置を確認）");
         return;
       }
 
-      // 使う項目に整形
+      setLog("ok", `✅ 取得成功：${data.length}件\n先頭1件:\n` + JSON.stringify(data[0], null, 2));
+
       const players = data.map(p=>({
         name: (p.name||"").trim(),
         job: (p.job||"").trim(),
@@ -181,24 +208,31 @@
         return p;
       }).filter(p=>p.name && p.job && p.target !== null);
 
+      if(players.length === 0){
+        setLog("err", "❌ 表示対象が0人です（名前/職業/目標が空、または お休み/既存扱い）");
+        return;
+      }
+
       const freeAll = players.filter(p=>p.free).sort((a,b)=> b.power-a.power);
       const fixed = players.filter(p=>!p.free);
 
-      // 目標ごとに
       const byTarget = {};
       fixed.forEach(p => (byTarget[p.target] ??= []).push(p));
 
-      // 目標ごとに処理（※フリー枠を「全体共有」にしたい場合は言ってください。すぐ変更します）
-      for(const target of Object.keys(byTarget)){
+      const targets = Object.keys(byTarget);
+      if(targets.length === 0){
+        setLog("err", "❌ 目標グループが0です（全員フリー枠 or 目標が全部空の可能性）");
+        return;
+      }
+
+      for(const target of targets){
         const members = byTarget[target].sort((a,b)=> b.power-a.power);
 
         const teamCount = Math.max(1, Math.ceil(members.length / TEAM_SIZE));
         const teams = Array.from({length: teamCount}, ()=>[]);
 
-        // まず均等分散
         members.forEach((m,i)=> teams[i % teamCount].push(m));
 
-        // フリー枠で補完 → 置換
         let free = freeAll.slice();
         fillByFree(teams, free);
         free = upgradeByFree(teams, free);
@@ -206,10 +240,10 @@
         render(area, target, teams);
       }
 
-    }catch(e){
-      area.innerHTML = `<div class="warn">取得エラー\n\n${String(e)}</div>`;
+    } catch(e){
+      setLog("err", "❌ 取得/処理エラー\n" + String(e));
       console.error(e);
-    }finally{
+    } finally {
       btn.disabled = false;
       btn.textContent = "スプレッドシートから取得・振り分け";
     }
