@@ -1,197 +1,134 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>チーム自動振り分け（診断）</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background:#fffafc; color:#333; }
+    header { padding:16px 20px; font-weight:700; font-size:18px; background:linear-gradient(90deg,#ffb7c5,#ffe7a1,#b8e5c7); }
+    main { max-width: 980px; margin: 18px auto; background:#fff; border-radius:14px; padding:18px; box-shadow:0 3px 10px rgba(0,0,0,.08); }
+    button { background:#ffb7c5; border:none; border-radius:10px; padding:10px 16px; color:#fff; font-size:14px; cursor:pointer; }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    .box { border-radius:12px; padding:12px; margin:12px 0; border:1px solid #ddd; background:#fafafa; white-space:pre-wrap; }
+    .ok { border-color:#b7f5c7; background:#e6ffed; }
+    .warn { border-color:#ffeeba; background:#fff3cd; }
+    .err { border-color:#f5b7b7; background:#ffe6e6; }
+    .team { border:2px solid #b8e5c7; background:#f8fff6; border-radius:12px; padding:12px; margin:10px 0; }
+    .team h3 { margin:0 0 6px 0; color:#2f7a54; }
+  </style>
+</head>
+<body>
+<header>チーム自動振り分け（診断）</header>
+
+<main>
+  <div id="boot" class="box ok">✅ HTMLは描画できています（ここが出れば “真っ白＝HTML未配信” ではありません）</div>
+
+  <div class="box">
+    開いているURLは <b id="loc"></b> です。
+    <br>※ 必ず <code>/index.html?v=任意</code> で開いてください（キャッシュ回避）。
+  </div>
+
+  <button id="fetchBtn">GASから取得テスト（JSONP）</button>
+  <div id="log" class="box warn">ログがここに出ます</div>
+  <div id="result"></div>
+</main>
+
 <script>
-const APPSCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbxAHyD_jBQ667q8P-GRilkvdP8MDE-KwBJ2lk6jE1PYfcGC4R8FbQUbD1L7DbYc-5M/exec";
+  // ========= ここだけ確認：あなたのGAS URL =========
+  const APPSCRIPT_URL =
+    "https://script.google.com/macros/s/AKfycbxAHyD_jBQ667q8P-GRilkvdP8MDE-KwBJ2lk6jE1PYfcGC4R8FbQUbD1L7DbYc-5M/exec";
+  // =================================================
 
-const TEAM_SIZE = 4;
-const ROLE_NEEDS = { "征服者": 1, "破壊者": 1, "守護者": 1, "掌握者": 1 };
+  document.getElementById("loc").textContent = location.href;
 
-// ---------- JSONP（CORS回避） ----------
-function loadJsonp(url) {
-  return new Promise((resolve, reject) => {
-    const cbName = "cb_" + Math.random().toString(36).slice(2);
-    const script = document.createElement("script");
-
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error("JSONP timeout"));
-    }, 15000);
-
-    function cleanup() {
-      clearTimeout(timer);
-      delete window[cbName];
-      script.remove();
-    }
-
-    window[cbName] = (data) => {
-      cleanup();
-      resolve(data);
-    };
-
-    script.onerror = () => {
-      cleanup();
-      reject(new Error("JSONP load error"));
-    };
-
-    const sep = url.includes("?") ? "&" : "?";
-    script.src = `${url}${sep}callback=${cbName}&_=${Date.now()}`;
-    document.body.appendChild(script);
+  // 画面にエラーを出す（白画面防止）
+  const logEl = document.getElementById("log");
+  function logBox(type, msg) {
+    logEl.className = "box " + (type || "warn");
+    logEl.textContent = msg;
+  }
+  window.addEventListener("error", (e) => {
+    logBox("err", "❌ JSエラー\n" + (e.message || "") + "\n" + (e.filename || "") + ":" + (e.lineno || ""));
   });
-}
+  window.addEventListener("unhandledrejection", (e) => {
+    logBox("err", "❌ Promiseエラー\n" + (e.reason ? String(e.reason) : ""));
+  });
 
-function normalizeTarget(fixedGoal, goal) {
-  const f = String(fixedGoal ?? "").trim();
-  const g = String(goal ?? "").trim();
-  if (f === "お休み" || g === "お休み") return null;
-  if (f.startsWith("既") || g.startsWith("既")) return null;
-  if (f) return f;
-  if (!g) return "64位";
-  return g;
-}
-function isFree(fixedGoal, goal) {
-  const f = String(fixedGoal ?? "").trim();
-  const g = String(goal ?? "").trim();
-  return f === "フリー枠" || g === "フリー枠";
-}
-function teamState(team) {
-  const roleCount = {};
-  let total = 0;
-  for (const m of team) {
-    total += m.skill;
-    roleCount[m.role] = (roleCount[m.role] || 0) + 1;
-  }
-  let lack = 0;
-  for (const r in ROLE_NEEDS) lack += Math.max(0, ROLE_NEEDS[r] - (roleCount[r] || 0));
-  return { total, lack };
-}
-function fillByFree(teams, free) {
-  for (let i = 0; i < free.length; i++) {
-    const p = free[i];
-    let bestIdx = -1, bestScore = -Infinity;
-    for (let t = 0; t < teams.length; t++) {
-      if (teams[t].length >= TEAM_SIZE) continue;
-      const b = teamState(teams[t]);
-      const a = teamState(teams[t].concat([p]));
-      const score = (b.lack - a.lack) * 100 + (a.total - b.total);
-      if (score > bestScore) { bestScore = score; bestIdx = t; }
-    }
-    if (bestIdx !== -1) { teams[bestIdx].push(p); free.splice(i,1); i--; }
-  }
-}
-function upgradeByFree(teams, free) {
-  const byRole = {};
-  for (const p of free) (byRole[p.role] ??= []).push(p);
-  for (const r in byRole) byRole[r].sort((a,b)=> b.skill - a.skill);
+  // JSONP（CORS回避）
+  function loadJsonp(url) {
+    return new Promise((resolve, reject) => {
+      const cbName = "cb_" + Math.random().toString(36).slice(2);
+      const script = document.createElement("script");
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("JSONP timeout"));
+      }, 15000);
 
-  for (const team of teams) {
-    for (const role in ROLE_NEEDS) {
-      const pool = byRole[role];
-      if (!pool?.length) continue;
-
-      const same = team.map((m,idx)=>({m,idx})).filter(x=>x.m.role===role);
-      if (!same.length) continue;
-
-      same.sort((a,b)=> a.m.skill - b.m.skill);
-      if (pool[0].skill > same[0].m.skill) {
-        team[same[0].idx] = pool.shift();
+      function cleanup() {
+        clearTimeout(timer);
+        try { delete window[cbName]; } catch {}
+        script.remove();
       }
-    }
-  }
-  return Object.values(byRole).flat();
-}
-function buildTeams(players) {
-  const byTarget = new Map();
-  let free = [];
 
-  for (const p of players) {
-    if (p.free) free.push(p);
-    else {
-      if (!byTarget.has(p.target)) byTarget.set(p.target, []);
-      byTarget.get(p.target).push(p);
-    }
+      window[cbName] = (data) => { cleanup(); resolve(data); };
+      script.onerror = () => { cleanup(); reject(new Error("JSONP load error")); };
+
+      const sep = url.includes("?") ? "&" : "?";
+      script.src = `${url}${sep}callback=${cbName}&_=${Date.now()}`;
+      document.body.appendChild(script);
+    });
   }
 
-  const result = new Map();
-  for (const [target, members] of byTarget.entries()) {
-    members.sort((a,b)=> b.skill - a.skill);
+  // 取得テスト
+  document.getElementById("fetchBtn").addEventListener("click", async () => {
+    const btn = document.getElementById("fetchBtn");
+    const result = document.getElementById("result");
+    result.innerHTML = "";
+    btn.disabled = true;
+    btn.textContent = "取得中...";
 
-    const teamCount = Math.max(1, Math.ceil(members.length / TEAM_SIZE));
-    const teams = Array.from({length: teamCount}, ()=>[]);
+    try {
+      logBox("warn", "…JSONPでGASを呼び出しています\n" + APPSCRIPT_URL);
 
-    members.forEach((m,i)=> teams[i % teamCount].push(m));
+      const data = await loadJsonp(APPSCRIPT_URL);
 
-    fillByFree(teams, free);
-    free = upgradeByFree(teams, free);
+      // GASが {ok:false,error:"..."} を返す設計ならここで表示
+      if (data && data.ok === false) {
+        logBox("err", "❌ GASエラー\n" + data.error);
+        return;
+      }
 
-    result.set(target, teams);
-  }
-  return { result, remainingFree: free };
-}
+      if (!Array.isArray(data)) {
+        logBox("err", "❌ 返ってきたデータが配列ではありません\n" + JSON.stringify(data, null, 2));
+        return;
+      }
 
-document.getElementById("fetchBtn").addEventListener("click", async () => {
-  const btn = document.getElementById("fetchBtn");
-  const area = document.getElementById("resultArea");
-  btn.disabled = true;
-  btn.textContent = "取得中...";
-  area.innerHTML = "";
+      logBox("ok", `✅ 取得成功：${data.length}件\n先頭3件:\n` + JSON.stringify(data.slice(0,3), null, 2));
 
-  try {
-    const data = await loadJsonp(APPSCRIPT_URL);
-
-    if (data && data.ok === false) {
-      area.innerHTML = `<div class="warn"><b>GASエラー</b><br>${data.error}</div>`;
-      return;
-    }
-    if (!Array.isArray(data) || data.length === 0) {
-      area.innerHTML = `<div class="warn"><b>データが0件です</b><br>ヘッダー行/データ開始行/列名を確認してください。</div>`;
-      return;
-    }
-
-    const players = data.map(r => {
-      const name = String(r.name ?? "").trim();
-      const role = String(r.job ?? "").trim();
-      const skill = Number(r.power) || 0;
-      const fixedGoal = String(r.fixedGoal ?? "").trim();
-      const goal = String(r.goal ?? "").trim();
-      return { name, role, skill, target: normalizeTarget(fixedGoal, goal), free: isFree(fixedGoal, goal) };
-    }).filter(p => p.name && p.role && Number.isFinite(p.skill) && p.target !== null);
-
-    if (players.length === 0) {
-      area.innerHTML = `<div class="warn"><b>表示対象が0人です</b><br>name/job/目標が空になっていないか確認してください。</div>`;
-      return;
-    }
-
-    const { result, remainingFree } = buildTeams(players);
-
-    for (const [target, teams] of result.entries()) {
-      const h = document.createElement("div");
-      h.style.margin = "20px 0 10px";
-      h.style.fontWeight = "bold";
-      h.textContent = `目標：${target}`;
-      area.appendChild(h);
-
-      teams.forEach((team,i)=>{
+      // 表示（最低限）
+      data.slice(0, 10).forEach((p, i) => {
         const div = document.createElement("div");
-        div.className = "team-card";
-        div.innerHTML = `
-          <div class="team-title">チーム ${i+1}</div>
-          <ul>${team.map(m => `<li class="member">${m.name}（${m.role} / ${m.skill}）</li>`).join("")}</ul>
-        `;
-        area.appendChild(div);
+        div.className = "team";
+        div.innerHTML = `<h3>Row ${i+1}</h3>
+          ${String(p.name || "")} / ${String(p.job || "")} / ${String(p.power || "")} / 固定:${String(p.fixedGoal || "")} / 目標:${String(p.goal || "")}`;
+        result.appendChild(div);
       });
-    }
 
-    if (remainingFree.length) {
-      const w = document.createElement("div");
-      w.className = "warn";
-      w.innerHTML = `<b>未使用のフリー枠</b><br>${remainingFree.map(m => `${m.name}（${m.role} / ${m.skill}）`).join("<br>")}`;
-      area.appendChild(w);
+    } catch (e) {
+      logBox("err", "❌ 通信/取得エラー\n" + String(e));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "GASから取得テスト（JSONP）";
     }
+  });
 
-  } catch (e) {
-    area.innerHTML = `<div class="warn"><b>通信エラー</b><br>${String(e)}</div>`;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "スプレッドシートから取得・振り分け";
-  }
-});
+  // 起動ログ
+  logBox("ok",
+    "✅ JS起動OK\n" +
+    "1) ボタンを押す\n" +
+    "2) ここに『取得成功』か『GASエラー/取得エラー』が出ます\n"
+  );
 </script>
+</body>
+</html>
