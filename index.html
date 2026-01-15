@@ -5,20 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>チーム自動振り分けツール</title>
   <style>
-    body { font-family: "Segoe UI", system-ui, sans-serif; background:#fffafc; margin:0; }
+    body { font-family: "Segoe UI", system-ui, sans-serif; background:#fffafc; color:#444; margin:0; }
     header { background: linear-gradient(90deg,#ffb7c5,#ffe7a1,#b8e5c7); padding:20px; text-align:center; font-size:1.6em; font-weight:bold; }
     main { max-width:900px; margin:25px auto; background:#fff; padding:20px; border-radius:15px; box-shadow:0 3px 8px rgba(0,0,0,.1); }
     .center { text-align:center; }
-    button { background:#ffb7c5; border:none; border-radius:8px; padding:10px 25px; color:#fff; font-size:1em; cursor:pointer; }
+    button { background:#ffb7c5; border:none; border-radius:8px; padding:10px 25px; color:white; font-size:1em; cursor:pointer; }
     button:disabled { opacity:.6; cursor:not-allowed; }
-    .team-card { background:#f8fff6; border:2px solid #b8e5c7; border-radius:10px; padding:10px 15px; margin-bottom:15px; }
-    .team-title { font-weight:bold; color:#4a8b65; margin-bottom:5px; }
+    .team-card { background:#f8fff6; border:2px solid #b8e5c7; border-radius:10px; padding:10px 15px; margin-bottom:20px; }
+    .team-title { font-weight:bold; color:#4a8b65; margin-bottom:5px; font-size:1.1em; }
     .warn { background:#fff3cd; border:1px solid #ffeeba; padding:12px; border-radius:10px; margin-top:15px; white-space:pre-wrap; }
     ul { margin:0; padding-left:20px; }
   </style>
 </head>
 <body>
 <header>チーム自動振り分けツール</header>
+
 <main>
   <div class="center">
     <button id="fetchBtn">スプレッドシートから取得・振り分け</button>
@@ -27,44 +28,9 @@
 </main>
 
 <script>
-  // ★ここだけ差し替え（GASの /exec URL）
-  const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbyYNto88XD9PWWWmQDkUSNeu0eyrzr86XW6SU_rlYA/dev";
+  // ★ここだけ差し替え：Apps Script の /exec URL
+  const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbDG4-Sgewbm3Ti_mbgkSRCPyKmoYXQwlaQVeByQumwR1xlLcccGztIoYp04T-YJ6f/exec";
   const TEAM_SIZE = 4;
-
-  // 目標の決定（固定目標があれば優先、なければ目標順位。未入力は64位）
-  function targetOf(p){
-    const f = (p.fixedGoal||"").trim();
-    const g = (p.goal||"").trim();
-    if (f === "お休み" || g === "お休み") return null;
-    if (f.startsWith("既") || g.startsWith("既")) return null;
-    if (f) return f;
-    if (!g) return "64位";
-    return g;
-  }
-  function isFree(p){
-    return (p.fixedGoal||"").trim()==="フリー枠" || (p.goal||"").trim()==="フリー枠";
-  }
-
-  // フリー枠優先ロジック：同職で戦力が高いなら置換（要望の部分）
-  function upgradeWithFree(team, freePool){
-    // freePool: 同じ目標に使えるフリー候補（全体）
-    // 同職で最弱を探して、同職フリーの最強と比べて置換
-    const byRole = {};
-    freePool.forEach(p => (byRole[p.job] ??= []).push(p));
-    for(const r in byRole) byRole[r].sort((a,b)=> b.power - a.power);
-
-    for (let i=0; i<team.length; i++){
-      const member = team[i];
-      const cand = (byRole[member.job] && byRole[member.job][0]) ? byRole[member.job][0] : null;
-      if (cand && cand.power > member.power){
-        team[i] = cand;
-        byRole[member.job].shift(); // 使ったので削除
-      }
-    }
-
-    // 使われなかったフリーを返す
-    return Object.values(byRole).flat();
-  }
 
   document.getElementById("fetchBtn").addEventListener("click", async () => {
     const btn = document.getElementById("fetchBtn");
@@ -75,81 +41,40 @@
 
     try {
       const res = await fetch(APPSCRIPT_URL, { cache:"no-store" });
-
-      // ここで失敗するなら「GASが匿名公開じゃない」か「URLが違う」
       const data = await res.json();
 
-      // GASがエラーを返した場合
-      if (data && data.ok === false){
+      if (data && data.ok === false) {
         area.innerHTML = `<div class="warn">GASエラー\n\n${data.error}</div>`;
         return;
       }
-
-      if (!Array.isArray(data) || data.length === 0){
-        area.innerHTML = `<div class="warn">データが0件です（ヘッダー行/列名/開始行を確認）</div>`;
+      if (!Array.isArray(data) || data.length === 0) {
+        area.innerHTML = `<div class="warn">データが0件です</div>`;
         return;
       }
 
-      // 整形
-      const players = data
-        .map(p => ({
-          name: (p.name||"").trim(),
-          job: (p.job||"").trim(),
-          power: Number(p.power)||0,
-          fixedGoal: (p.fixedGoal||"").trim(),
-          goal: (p.goal||"").trim(),
-          target: null,
-          free: false
-        }))
-        .map(p => (p.target = targetOf(p), p.free = isFree(p), p))
-        .filter(p => p.name && p.job && p.target !== null);
+      // 初期の単純な振り分け（戦力順→均等分散）
+      const members = data
+        .filter(p => p.name && p.power)
+        .map(p => ({ name: p.name, skill: Number(p.power) || 0 }))
+        .sort((a,b) => b.skill - a.skill);
 
-      // 目標ごとに分ける（フリー枠は別）
-      const freeAll = players.filter(p => p.free);
-      const fixed = players.filter(p => !p.free);
+      const teamCount = Math.ceil(members.length / TEAM_SIZE);
+      const teams = Array.from({length: teamCount}, ()=>[]);
 
-      const byTarget = {};
-      fixed.forEach(p => (byTarget[p.target] ??= []).push(p));
+      members.forEach((m, i) => teams[i % teamCount].push(m));
 
-      // 表示作成
-      for (const target of Object.keys(byTarget)){
-        const members = byTarget[target].sort((a,b)=> b.power - a.power);
-
-        // チーム数
-        const teamCount = Math.max(1, Math.ceil(members.length / TEAM_SIZE));
-        const teams = Array.from({length: teamCount}, ()=>[]);
-
-        // 均等に割り振り
-        members.forEach((m,i)=> teams[i % teamCount].push(m));
-
-        // フリー枠で「同職・高戦力」置換（要望）
-        // ※ freeAll を目標ごとに使うならここでコピーして使う
-        let freeRemain = freeAll.slice();
-        for (let i=0; i<teams.length; i++){
-          freeRemain = upgradeWithFree(teams[i], freeRemain);
-        }
-
-        // 見出し
-        const h = document.createElement("div");
-        h.style.fontWeight = "bold";
-        h.style.margin = "20px 0 10px";
-        h.textContent = `目標：${target}`;
-        area.appendChild(h);
-
-        // チーム表示
-        teams.forEach((team, idx)=>{
-          const div = document.createElement("div");
-          div.className = "team-card";
-          div.innerHTML = `
-            <div class="team-title">チーム ${idx+1}</div>
-            <ul>${team.map(m => `<li>${m.name}（${m.job} / ${m.power}）</li>`).join("")}</ul>
-          `;
-          area.appendChild(div);
-        });
-      }
+      teams.forEach((team, i) => {
+        const div = document.createElement("div");
+        div.className = "team-card";
+        div.innerHTML = `
+          <div class="team-title">チーム ${i+1}</div>
+          <ul>${team.map(m => `<li>${m.name}（${m.skill}）</li>`).join("")}</ul>
+        `;
+        area.appendChild(div);
+      });
 
     } catch (e) {
-      area.innerHTML = `<div class="warn">取得エラー\n\n${String(e)}\n\n・GASの/exec URL\n・GASの公開設定（全員/匿名）\nを確認してください</div>`;
+      area.innerHTML = `<div class="warn">取得エラー\n\n${String(e)}\n\n・/exec URL\n・GAS公開設定（全員/匿名含む）</div>`;
       console.error(e);
     } finally {
       btn.disabled = false;
@@ -157,5 +82,6 @@
     }
   });
 </script>
+
 </body>
 </html>
