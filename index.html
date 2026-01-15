@@ -30,75 +30,12 @@
 </main>
 
 <script>
-  // ★あなたの /exec URL
-  const APPSCRIPT_URL = "<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>チーム自動振り分けツール</title>
-  <style>
-    body { font-family: "Segoe UI", system-ui, sans-serif; background:#fffafc; color:#444; margin:0; }
-    header { background: linear-gradient(90deg,#ffb7c5,#ffe7a1,#b8e5c7); padding:20px; text-align:center; font-size:1.6em; font-weight:bold; }
-    main { max-width:900px; margin:25px auto; background:#fff; padding:20px; border-radius:15px; box-shadow:0 3px 8px rgba(0,0,0,.1); }
-    .center { text-align:center; }
-    button { background:#ffb7c5; border:none; border-radius:8px; padding:10px 25px; color:white; font-size:1em; cursor:pointer; }
-    button:disabled { opacity:.6; cursor:not-allowed; }
-    .team-card { background:#f8fff6; border:2px solid #b8e5c7; border-radius:10px; padding:10px 15px; margin-bottom:16px; }
-    .team-title { font-weight:bold; color:#4a8b65; margin-bottom:5px; font-size:1.1em; }
-    .warn { background:#fff3cd; border:1px solid #ffeeba; padding:12px; border-radius:10px; margin-top:15px; white-space:pre-wrap; }
-    ul { margin:0; padding-left:20px; }
-    .meta { color:#666; font-size:0.9em; margin-top:10px; text-align:center; }
-  </style>
-</head>
-<body>
-<header>チーム自動振り分けツール</header>
-
-<main>
-  <div class="center">
-    <button id="fetchBtn">スプレッドシートから取得・振り分け</button>
-    <div class="meta">条件：目標ごとにチーム作成 → フリー枠で不足補完 → 同職なら高戦力フリー枠で置換</div>
-  </div>
-  <div id="resultArea" style="margin-top:25px;"></div>
-</main>
-
-<script>
   // ✅ あなたの /exec URL（反映済み）
   const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbDG4-Sgewbm3Ti_mbgkSRCPyKmoYXQwlaQVeByQumwR1xlLcccGztIoYp04T-YJ6f/exec";
 
   const TEAM_SIZE = 4;
 
   // 4人チームで「最低1人ずつ欲しい職業」（必要なら変更OK）
-  const ROLE_NEEDS = { "征服者":1, "破壊者":1, "守護者":1, "掌握者":1 };
-
-  // 目標の決定（固定目標優先、次に目標順位、未入力は64位）
-  function targetOf(p){
-    const f = (p.fixedGoal||"").trim();
-    const g = (p.goal||"").trim();
-    if (f === "お休み" || g === "お休み") return null;
-    if (f.startsWith("既") || g.startsWith("既")) return null;
-    if (f) return f;
-    if (!g) return "64位";
-    return g;
-  }
-
-  function isFree(p){
-    const f = (p.fixedGoal||"").trim();
-    const g = (p.goal||"").trim();
-    return f==="フリー枠" || g==="フリー枠";
-  }
-
-  function teamState(team){
-    const roleCount = {};
-    let power = 0;
-    team.forEach(m=>{
-      power += m.power;
-      roleCount[m.job]
-";
-
-  const TEAM_SIZE = 4;
-
-  // 4人チームの「欲しい職業」最低1人ずつ（必要なら変更）
   const ROLE_NEEDS = { "征服者":1, "破壊者":1, "守護者":1, "掌握者":1 };
 
   // 目標の決定（固定目標優先、次に目標順位、未入力は64位）
@@ -251,6 +188,7 @@
       const byTarget = {};
       fixed.forEach(p => (byTarget[p.target] ??= []).push(p));
 
+      // 目標ごとに処理（※フリー枠を「全体共有」にしたい場合は言ってください。すぐ変更します）
       for(const target of Object.keys(byTarget)){
         const members = byTarget[target].sort((a,b)=> b.power-a.power);
 
@@ -261,7 +199,7 @@
         members.forEach((m,i)=> teams[i % teamCount].push(m));
 
         // フリー枠で補完 → 置換
-        let free = freeAll.slice(); // 目標ごとに使う（全体共有にしたいならここを変える）
+        let free = freeAll.slice();
         fillByFree(teams, free);
         free = upgradeByFree(teams, free);
 
